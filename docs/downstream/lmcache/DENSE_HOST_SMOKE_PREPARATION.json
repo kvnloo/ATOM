@@ -1,0 +1,47 @@
+{
+  "status": "PREPARATION_CHECKS_PASSED_GPU_NOT_RUN",
+  "source_capture_run": 36064272664,
+  "gist_revision": "c881bce790f14d57fa026219af2d4466c2e4a154",
+  "atom_target": "e9be221f637d6a7e194e0d3201dbc9ddc3119067",
+  "author_reported_gpu_commit": "4a8d76bea929a8925f299f8db98f2408a20cea7d",
+  "source_semantic_review": "COMPLETED_FOR_BOUNDED_RECIPE",
+  "source_python_syntax": [
+    {
+      "file": "pr2339_gpu_smoke.py",
+      "sha256": "fc699dbc3465729fb8fa17593ee90c9830a28c5a7d41343a302edc43b968d342",
+      "syntax": "PASS_NOT_EXECUTED"
+    },
+    {
+      "file": "pr2339_gpu_smoke_runner.py",
+      "sha256": "daede71dd36bd6577c2b8a3e0c016151f324ab61cd8e9c9e077f7f106e57d627",
+      "syntax": "PASS_NOT_EXECUTED"
+    }
+  ],
+  "recipe_syntax": {
+    "bash_blocks": 2,
+    "python_blocks": 2,
+    "status": "PASS_NOT_EXECUTED"
+  },
+  "result_reader_checks": [
+    {"case": "complete_synthetic_receipt", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "accept", "observed": "accept", "check": "PASS"},
+    {"case": "missing_result", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "nonzero_exit_despite_passed_json", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "missing_quiescent_completion", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "wrong_fence_type", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "wrong_target_revision", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "partial_host_hit", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "additional_backend", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"},
+    {"case": "environment_drift", "input": "SYNTHETIC_NOT_HARDWARE", "expected": "reject", "observed": "reject", "check": "PASS"}
+  ],
+  "runtime_execution": {
+    "author_smoke": "NOT_RUN",
+    "author_runner": "NOT_RUN",
+    "preflight": "NOT_RUN",
+    "gpu": "NOT_RUN"
+  },
+  "limits": [
+    "Synthetic receipt validation does not establish any GPU result.",
+    "Captured Gist bytes are pinned, but their identity with the author-reported historical executed bytes is not independently established.",
+    "No model, TP quorum, retry, latency or performance qualification."
+  ]
+}
