@@ -1,0 +1,67 @@
+name: Downstream LMCache lookup qualification
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - experiments/lmcache_lookup/**
+      - .github/workflows/downstream-lmcache-lookup.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downstream-lmcache-lookup-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cpu-qualification:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the experiment branch with history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install one isolated CPU environment for all comparison arms
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            python -m venv .qualification-venv
+            source .qualification-venv/bin/activate
+            python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+            SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.ci python -m pip install -e .
+            python -m pip install pytest msgpack quart jsonschema av pillow httpx black ruff
+            python -m pip freeze --all
+          } 2>&1 | tee qualification-install.log
+
+      - name: Compare pristine, test-only, candidate and sensitivity arms
+        timeout-minutes: 35
+        shell: bash
+        env:
+          QUALIFICATION_OUT: ${{ github.workspace }}/qualification-results
+        run: |
+          set -euo pipefail
+          .qualification-venv/bin/python experiments/lmcache_lookup/run.py 2>&1 | tee qualification-driver.log
+
+      - name: Retain evidence even when installation or qualification fails
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lmcache-lookup-cpu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            qualification-results/
+            qualification-install.log
+            qualification-driver.log
+          if-no-files-found: error
+          retention-days: 14
