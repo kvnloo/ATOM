@@ -52,7 +52,10 @@ jobs:
           QUALIFICATION_OUT: ${{ github.workspace }}/qualification-results
         run: |
           set -euo pipefail
-          .qualification-venv/bin/python experiments/lmcache_lookup/run.py 2>&1 | tee qualification-driver.log
+          # The native shell runner invokes `python` through PATH. Calling the
+          # venv interpreter alone does not activate it for that child process.
+          source .qualification-venv/bin/activate
+          python experiments/lmcache_lookup/run.py 2>&1 | tee qualification-driver.log
 
       - name: Retain evidence even when installation or qualification fails
         if: always()
