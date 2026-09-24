@@ -1,6 +1,6 @@
 # Dense lookup diagnostic CPU evidence
 
-Evidence snapshot: 2026-09-24. Parent [RFC #1](https://github.com/kvnloo/ATOM/issues/1). This record separates actual observations from proposed tests and keeps an experiment failure visible.
+Evidence snapshot: 2026-09-24. Parent [RFC #1](https://github.com/kvnloo/ATOM/issues/1). **Current result: run 2 passed the declared CPU gate.** Run 1's environment failure remains recorded below. Neither run qualifies a real LMCache binary or GPU path.
 
 ## Run 1: focused evidence obtained, overall gate NOT met
 
@@ -31,7 +31,7 @@ The native log in both arms was:
 /opt/hostedtoolcache/Python/3.12.14/x64/bin/python: No module named pytest
 ```
 
-**Classification:** experiment environment defect and missing full-suite coverage. It is not an ATOM product regression, nor a pass-with-skips result. The focused red/green/red sequence is valid evidence for the tested warning contract, but the overall CPU acceptance gate remains unmet.
+**Classification:** experiment environment defect and missing full-suite coverage. It is not an ATOM product regression, nor a pass-with-skips result. The focused red/green/red sequence supplied evidence for the tested warning contract, but the overall CPU acceptance gate was unmet at that checkpoint.
 
 ### Retained identities
 
@@ -48,18 +48,38 @@ b7cd2ebba012417b2419ee41c725c34ff880d5e2e7bf464a7483d3dfeb35a689
 
 The patch changes only the two optional-lookup warning handlers plus the new constructor/registration tests. It remains an artifact generated in disposable worktrees, not a production-source commit on this branch.
 
-## Correction and run 2
+## Run 2: complete CPU gate passed
 
 [Commit e68e996f](https://github.com/kvnloo/ATOM/commit/e68e996fe9262a851df5434902173babadedb759) activates the already-installed virtual environment before starting the driver. The repository's native shell runner resolves `python` through `PATH`; launching only `.qualification-venv/bin/python` did not configure that child process.
 
-[Corrected run 36028507670](https://github.com/kvnloo/ATOM/actions/runs/36028507670) was queued at the last inspection used to write this record. No second-run result is claimed. Keep run 1 unchanged and add the new result separately when available; do not replace an observed failure with a presumed fix.
+- [Corrected run 36028507670](https://github.com/kvnloo/ATOM/actions/runs/36028507670), job `107731038762`, attempt 1, completed successfully.
+- Experiment commit: `e68e996fe9262a851df5434902173babadedb759`.
+- Same pinned production base as run 1; dependencies were held fixed within this run. This is not a claim of identical installations across runs.
+- [Artifact 10822692041](https://github.com/kvnloo/ATOM/actions/runs/36028507670/artifacts/10822692041), `lmcache-lookup-cpu-36028507670-1`, 512,411 bytes.
+- Downloaded archive SHA-256 independently matched the workflow's digest: `7cd70e971e568496af0fbd768cc8b3f4c826f7083319bf82f81fca5d9e8dfb21`.
+- Receipt status: `CPU_GATE_PASSED`.
 
-Promotion requires the complete native comparison, expected diagnostic control/candidate/sensitivity outcomes, unchanged dependencies within the run, no added failures or coverage loss, and passing style checks. Changed details of baseline failures still require inspection. Existing plugin/real-server exclusions must stay intact.
+| Actual JUnit report | Passed | Failed | Errors | Skipped |
+|---|---:|---:|---:|---:|
+| Original existing dense tests | 49 | 0 | 0 | 0 |
+| Candidate existing dense tests | 49 | 0 | 0 | 0 |
+| Original native suite | 6,820 | 0 | 0 | 589 |
+| Candidate native suite | 6,849 | 0 | 0 | 589 |
+| Test-only control | 13 | 16 | 0 | 0 |
+| Candidate diagnostic probe | 29 | 0 | 0 | 0 |
+| Candidate diagnostic probe, fresh process | 29 | 0 | 0 | 0 |
+| Original warnings restored; tests retained | 13 | 16 | 0 | 0 |
+
+After downloading the artifact, an independent XML comparison confirmed that every original native testcase remains present with the same status, the skipped-case sets are identical, and the only 29 added cases are the new diagnostic cases, all passing. Each control/sensitivity failure is one of the 16 declared initialization-exception cases and contains the intended `LOOKUP_DIAGNOSTIC_CLASS_MISSING` assertion. No collection/setup failures substituted for the desired regression.
+
+Black, Ruff, whitespace and all three import-origin checks exited zero. The receipt records unchanged before/after dependencies, no new native regressions, no coverage loss and no changed failure details. The probe/production/patch hashes match the retained identities above. Native plugin/real-server exclusions were not removed; the 589 skips remain missing coverage, not successes. Do not sum repeated comparison arms as independent product coverage.
+
+The recorded environment includes Python `3.12.14`, torch `2.14.0+cpu`, pytest `9.1.1`, Black `26.5.1`, Ruff `0.16.8` and transformers `5.16.1`; the complete installed inventory is in the artifact. This is **not** the author's LMCache `0.4.5` ROCm smoke environment, and these CPU results do not qualify PR #2339's different target revision.
 
 ## Meaning and limits
 
 These tests invoke actual ATOM constructors and worker registration while replacing external lookup/engine/layout boundaries. They verify component/class diagnostics, payload handling for the synthetic fixture, valid non-hosting `None`, configured roles, successful construction and an ordinary miss.
 
-They do **not** establish that class-only warnings are the preferred operator experience, that every possible secret is globally scrubbed, that the real LMCache binary works, or that AMD transfers, cache reload, model output or performance are correct. Maintainer preference and hardware qualification are separate gates.
+They do **not** establish that class-only warnings are the preferred operator experience, that every possible secret is globally scrubbed, that the real LMCache binary works, or that AMD transfers, cache reload, model output or performance are correct. Maintainer preference and hardware qualification are separate gates. Passing the CPU gate does not automatically authorize an upstream submission or production rollout.
 
-No upstream issue, comment or PR was posted by this experiment. Fork `main` and production source remain unchanged; only downstream experiment, workflow and research files have been committed.
+No upstream issue, comment or PR was posted by this experiment. Fork `main` and production source remain unchanged; only downstream experiment, workflow and research files have been committed. The separate [community GPU recipe](DENSE_HOST_SMOKE_RECIPE.md) reuses the author's smoke and remains unexecuted by us.
