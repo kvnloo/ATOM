@@ -1,0 +1,116 @@
+name: Downstream LMCache smoke source capture
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-lmcache-smoke-source.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  capture-source:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Capture the author-linked Gist without executing its contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import ast
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.request
+
+          gist_id = '4768a59519b2e4a9c83e80037a21db79'
+          owner = 'NidhoggD1'
+          endpoint = f'https://api.github.com/gists/{gist_id}'
+          out = Path(os.environ['RUNNER_TEMP']) / 'lmcache-smoke-source'
+          out.mkdir(exist_ok=False)
+          (out / 'source').mkdir()
+          receipt = {
+              'status': 'IN_PROGRESS',
+              'gist_id': gist_id,
+              'owner': owner,
+              'author_reply': 'https://github.com/ROCm/ATOM/pull/2339#issuecomment-5821947101',
+              'atom_target': 'e9be221f637d6a7e194e0d3201dbc9ddc3119067',
+              'gpu_execution': 'NOT_RUN',
+              'semantic_source_review': 'PENDING',
+              'github_run_id': os.environ['GITHUB_RUN_ID'],
+              'files': [],
+          }
+
+          def get_json(url):
+              request = urllib.request.Request(url, headers={
+                  'Accept': 'application/vnd.github+json',
+                  'User-Agent': 'ATOM-downstream-source-capture',
+              })
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  raw = response.read(2 * 1024 * 1024 + 1)
+              if len(raw) > 2 * 1024 * 1024:
+                  raise ValueError('Gist response exceeds capture budget')
+              result = json.loads(raw)
+              if result.get('id') != gist_id or result.get('owner', {}).get('login') != owner:
+                  raise ValueError('Unexpected Gist identity')
+              return result
+
+          try:
+              current = get_json(endpoint)
+              revision = current['history'][0]['version']
+              if re.fullmatch(r'[0-9a-f]{40}', revision) is None:
+                  raise ValueError('Invalid immutable Gist revision')
+              snapshot = get_json(f'{endpoint}/{revision}')
+              receipt['gist_revision'] = revision
+              files = snapshot['files']
+              if not 1 <= len(files) <= 10:
+                  raise ValueError('Unexpected file count')
+              total = 0
+              for name, info in sorted(files.items()):
+                  if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,150}', name) is None:
+                      raise ValueError('Unsupported filename')
+                  if info.get('truncated') or not isinstance(info.get('content'), str):
+                      raise ValueError('Incomplete Gist content')
+                  raw = info['content'].encode('utf-8')
+                  total += len(raw)
+                  if total > 256 * 1024:
+                      raise ValueError('Source exceeds capture budget')
+                  (out / 'source' / name).write_bytes(raw)
+                  record = {
+                      'name': name,
+                      'sha256': hashlib.sha256(raw).hexdigest(),
+                      'bytes': len(raw),
+                      'raw_url': info.get('raw_url'),
+                  }
+                  if name.endswith('.py'):
+                      try:
+                          ast.parse(info['content'], filename=name)
+                          record['python_syntax'] = 'PASS_NOT_EXECUTED'
+                      except SyntaxError as error:
+                          record['python_syntax'] = 'FAIL'
+                          record['syntax_error_line'] = error.lineno
+                  receipt['files'].append(record)
+                  print(json.dumps({'source_file': name, 'content': info['content']}, ensure_ascii=True))
+              receipt['status'] = 'SOURCE_CAPTURED_NOT_EXECUTED'
+          except Exception as error:
+              receipt['status'] = 'SOURCE_CAPTURE_BLOCKED'
+              receipt['error_type'] = type(error).__name__
+              raise
+          finally:
+              (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+              print(json.dumps({'source_receipt': receipt}, ensure_ascii=True))
+          PY
+
+      - name: Retain source and provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lmcache-smoke-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lmcache-smoke-source/
+          if-no-files-found: error
+          retention-days: 14
