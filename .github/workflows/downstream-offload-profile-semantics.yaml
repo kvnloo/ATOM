@@ -20,6 +20,7 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       CUDA_VISIBLE_DEVICES: ''
       ROCR_VISIBLE_DEVICES: ''
+      EVIDENCE: ${{ runner.temp }}/profile-evidence
     steps:
       - name: Check out candidate with history
         uses: actions/checkout@v6
@@ -38,13 +39,13 @@ jobs:
         timeout-minutes: 12
         run: |
           set -euo pipefail
-          mkdir evidence
+          mkdir -p "$EVIDENCE"
           python -m venv "$RUNNER_TEMP/profile-venv"
           source "$RUNNER_TEMP/profile-venv/bin/activate"
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.profile python -m pip install -e .
           python -m pip install pytest msgpack quart jsonschema av pillow httpx black ruff
-          python -m pip freeze --all | tee evidence/dependencies-before.txt
+          python -m pip freeze --all | tee "$EVIDENCE/dependencies-before.txt"
 
       - name: Prove original red, candidate green, original red
         shell: bash
@@ -63,10 +64,10 @@ jobs:
             cp "$RUNNER_TEMP/profile-test.py" "$TEST"
             set +e
             PYTHONPATH="$PWD" python -m pytest "$TEST" -q -rs \
-              --junitxml="evidence/${name}.xml" >"evidence/${name}.log" 2>&1
+              --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
             local rc=$?
             set -e
-            printf '%s\n' "$rc" >"evidence/${name}.exit"
+            printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
             git reset --hard HEAD >/dev/null
             git clean -fd >/dev/null
           }
@@ -77,6 +78,7 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
           import xml.etree.ElementTree as ET
 
@@ -87,8 +89,9 @@ jobs:
               'test_dsv4_load_profile_uses_the_same_unmeasured_contract[unmeasured]',
           }
           receipt = {'status': 'IN_PROGRESS', 'arms': {}, 'expected_red': sorted(expected_red)}
+          evidence = Path(os.environ['EVIDENCE'])
           for name in ['original', 'candidate', 'restored']:
-              root = ET.parse(f'evidence/{name}.xml').getroot()
+              root = ET.parse(evidence / f'{name}.xml').getroot()
               cases = {}
               for item in root.iter('testcase'):
                   key = item.get('name')
@@ -102,7 +105,7 @@ jobs:
                           detail = child.get('message', '') + '\n' + (child.text or '')
                           break
                   cases[key] = {'status': status, 'detail': detail}
-              rc = int(Path(f'evidence/{name}.exit').read_text())
+              rc = int(evidence / f'{name}.exit'.read_text())
               receipt['arms'][name] = {'exit_code': rc, 'cases': cases}
           a, b, c = [receipt['arms'][name] for name in ['original', 'candidate', 'restored']]
           assert len(a['cases']) == len(b['cases']) == len(c['cases']) == 7
@@ -116,7 +119,7 @@ jobs:
           assert b['exit_code'] == 0
           assert all(v['status'] == 'passed' for v in b['cases'].values())
           receipt['status'] = 'PROFILE_CONTRACT_GATE_PASSED'
-          Path('evidence/receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          (evidence / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
           print(receipt['status'])
           PY
 
@@ -132,26 +135,26 @@ jobs:
             tests/test_offload_transfer_instrumentation.py \
             tests/test_dense_offload_connector.py \
             tests/test_lmcache_offload_connector.py \
-            -q -rs --junitxml=evidence/focused.xml 2>&1 | tee evidence/focused.log
+            -q -rs --junitxml="$EVIDENCE/focused.xml" 2>&1 | tee "$EVIDENCE/focused.log"
           python -m black --check \
             atom/kv_transfer/offload/_offload_common.py \
             atom/kv_transfer/offload/dense/connector.py \
             atom/kv_transfer/offload/hybrid/dsv4/connector.py \
-            tests/test_offload_profile_logging.py 2>&1 | tee evidence/black.log
+            tests/test_offload_profile_logging.py 2>&1 | tee "$EVIDENCE/black.log"
           python -m ruff check \
             atom/kv_transfer/offload/_offload_common.py \
             atom/kv_transfer/offload/dense/connector.py \
             atom/kv_transfer/offload/hybrid/dsv4/connector.py \
-            tests/test_offload_profile_logging.py 2>&1 | tee evidence/ruff.log
-          git diff --check 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e HEAD | tee evidence/diff-check.log
-          python -m pip freeze --all > evidence/dependencies-after.txt
-          cmp evidence/dependencies-before.txt evidence/dependencies-after.txt
+            tests/test_offload_profile_logging.py 2>&1 | tee "$EVIDENCE/ruff.log"
+          git diff --check 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e HEAD | tee "$EVIDENCE/diff-check.log"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
 
       - name: Retain evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: offload-profile-semantics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: evidence/
+          path: ${{ runner.temp }}/profile-evidence/
           if-no-files-found: error
           retention-days: 14
