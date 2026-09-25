@@ -1,0 +1,89 @@
+name: Downstream LMCache MP recipe parser
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - experiments/lmcache_mp_recipe/**
+      - .github/workflows/downstream-lmcache-mp-recipe.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downstream-lmcache-mp-recipe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-parser:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      CUDA_VISIBLE_DEVICES: ''
+      ROCR_VISIBLE_DEVICES: ''
+    steps:
+      - name: Check out downstream experiment
+        uses: actions/checkout@v6
+        with:
+          path: experiment
+          persist-credentials: false
+
+      - name: Check out the unchanged ATOM recipe revision
+        uses: actions/checkout@v6
+        with:
+          repository: ROCm/ATOM
+          ref: 9c64bea07eeb16f75c746787490522abf0efbaec
+          path: atom-source
+          persist-credentials: false
+
+      - name: Check out the matching unchanged LMCache parser
+        uses: actions/checkout@v6
+        with:
+          repository: LMCache/LMCache
+          ref: 05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb
+          path: lmcache-source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install real CPU dependencies once
+        timeout-minutes: 14
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            python -m venv "$RUNNER_TEMP/mp-recipe-venv"
+            source "$RUNNER_TEMP/mp-recipe-venv/bin/activate"
+            python -m pip install 'torch==2.13.0' --index-url https://download.pytorch.org/whl/cpu
+            python -m pip install -r lmcache-source/requirements/common.txt
+            python -m pip freeze --all
+          } 2>&1 | tee mp-recipe-install.log
+
+      - name: Parse the original, corrected and restored example
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/mp-recipe-venv/bin/activate"
+          python experiment/experiments/lmcache_mp_recipe/probe.py \
+            --atom-root atom-source --lmcache-root lmcache-source \
+            --output mp-recipe-results 2>&1 | tee mp-recipe-probe.log
+
+      - name: Retain evidence even on environment failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lmcache-mp-recipe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            mp-recipe-results/
+            mp-recipe-install.log
+            mp-recipe-probe.log
+          if-no-files-found: error
+          retention-days: 14
