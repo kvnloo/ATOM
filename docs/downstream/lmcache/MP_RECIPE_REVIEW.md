@@ -1,60 +1,72 @@
 # MP recipe review: one argument, one stale pointer
 
-Downstream preparation record. The [source-level question is posted](https://github.com/ROCm/ATOM/pull/2250#issuecomment-5822156319); no owner reply was present at the latest check. **The real-parser run remains queued; no parser or server execution is claimed.** Full analysis: [MP compatibility triage](MP_COMPATIBILITY_TRIAGE.md).
+**The real server-argument parser comparison passed.** This supersedes the earlier queued/source-only status. No LMCache server, cache allocation, model or GPU test ran. The [initial question](https://github.com/ROCm/ATOM/pull/2250#issuecomment-5822156319) is already posted; do not duplicate it. Full architecture analysis remains in [MP compatibility triage](MP_COMPATIBILITY_TRIAGE.md).
 
-## Target and verified source chain
+## Pinned target and minimal change
 
-- Discussion: [ROCm/ATOM #2250](https://github.com/ROCm/ATOM/pull/2250), owned by `yhl-amd`.
-- Inspected PR head: `9c64bea07eeb16f75c746787490522abf0efbaec`.
-- Existing guide: [parent offload README, MP section](https://github.com/ROCm/ATOM/blob/9c64bea07eeb16f75c746787490522abf0efbaec/atom/kv_transfer/offload/README.md#lmcache-multiprocess-lmcache_mp). Do not create another guide at the obsolete path merely to match the PR description.
-- Matching LMCache source: `05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb`.
-- [ServerCommand.add_arguments](https://github.com/LMCache/LMCache/blob/05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb/lmcache/cli/commands/server.py) composes [add_storage_manager_args](https://github.com/LMCache/LMCache/blob/05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb/lmcache/v1/distributed/config.py), which makes `--eviction-policy` required and accepts `LRU`.
+- Author discussion: [ROCm/ATOM #2250](https://github.com/ROCm/ATOM/pull/2250), `yhl-amd`, branch `feat/dsv4-lmcache-mp`.
+- ATOM recipe revision: `9c64bea07eeb16f75c746787490522abf0efbaec`.
+- Matching LMCache parser/build source: `05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb`.
+- Existing guide: [parent offload README, MP section](https://github.com/ROCm/ATOM/blob/9c64bea07eeb16f75c746787490522abf0efbaec/atom/kv_transfer/offload/README.md#lmcache-multiprocess-lmcache_mp). The PR description still points to the obsolete `mp/README.md` at the last source check; updating that description is an author edit, not a new repository file.
 
-The existing launch example supplies host, port, chunk size, null-block marker, group separation, transfer mode and memory size, but omits the required policy. With the full argument set registered, argument parsing rejects that invocation before a server is launched. This conclusion comes from source composition; it is not an observed CLI run.
-
-## Prepared documentation-only patch
-
-[Downloadable unified patch](mp-recipe-eviction-policy.patch), prepared against the author's **`feat/dsv4-lmcache-mp` branch**, not `main`:
+[Prepared unified patch](mp-recipe-eviction-policy.patch):
 
 ```diff
 -  --supported-transfer-mode lmcache_driven --l1-size-gb 64
 +  --supported-transfer-mode lmcache_driven --l1-size-gb 64 --eviction-policy LRU
 ```
 
-The source range was refreshed from the exact PR head: README lines 141–155, full-file Git blob `9727a8e3de3418e4b82c700d8c9e9c438a66e183`. Patch SHA-256: `16638d3d5b871ddac2139d97864601670c51240bc04b3bf1d5040d448507ccc5`.
+This is one insertion and one deletion in one README. `LRU` is an explicit choice for this example, not a new runtime default or a performance recommendation. The existing 64 GB argument was parsed only; that cache was never allocated.
 
-Local preparation actually checked both command blocks with `bash -n`, verified with `shlex` that the candidate adds only the two tokens `--eviction-policy` and `LRU`, and checked `git apply --numstat`: **one insertion, one deletion, one README**. These are syntax/token/diff-shape checks, not the LMCache parser or a full-checkout apply check. No server command was executed, and the patch has not been applied to a production file or submitted upstream.
+The upstream contribution contains no experiment framework, topology change or connector change. Do not submit this downstream research branch against `main`. The patch belongs on the author's feature branch, or on refreshed main after that branch merges if the omission is still present. Stop when the author has already fixed it.
 
-**Submission boundary:** do not open a PR from this research branch to upstream `main`; it contains unrelated experiment material. A future docs-only commit should be applied by the owner, or based on the author's feature branch if they prefer a stacked PR. After #2250 merges, refresh against main and stop if the example is already fixed. The description's stale link is an author edit, not another repository file to create.
+## Actual execution: original → candidate → restored
 
-`LRU` is an explicit choice for this example, not a change to LMCache defaults or an optimization claim. The existing 64 GB budget is shown only to identify the minimal diff; it is not a recommendation to allocate memory on a collaborator's machine. **No server-start command is to be executed as part of this docs validation.**
+**[Passing run 36094203732](https://github.com/kvnloo/ATOM/actions/runs/36094203732)**, experiment commit `bfe589c8085facd487d58d2a2123f611e76d70f6`; job `107942872996`.
 
-## Parser-only acceptance plan
+The unchanged [probe](https://github.com/kvnloo/ATOM/blob/bfe589c8085facd487d58d2a2123f611e76d70f6/experiments/lmcache_mp_recipe/probe.py) extracts the exact first bash command under `### Running the MP server`, imports the real `ServerCommand`, calls `add_arguments()` on a real argument parser, and parses the command's arguments. It does not invoke CLI dispatch or `ServerCommand.execute()`.
 
-[Existing hosted real-parser experiment](https://github.com/kvnloo/ATOM/actions/runs/36075462321) is queued at this checkpoint. It is not rerun or duplicated just because it is waiting. The returned status does not establish why GitHub has not assigned a runner.
+| Comparison arm | Observed parser exit | Observed result |
+|---|---:|---|
+| Original example | 2 | Required-argument error names only `--eviction-policy`. |
+| Add only `--eviction-policy LRU` | 0 | Successful parsing; documented settings preserved. |
+| Restore original arguments | 2 | The same missing-policy rejection returns. |
 
-Use an isolated environment in which the pinned full LMCache package and compatible binary dependencies can be imported. This check requires no model, no GPU transfer and no running server, but import/backend-selection requirements may still block a CPU-only environment. Report that as an environment block; do not quietly replace the parser with a mock.
+The candidate retained host `127.0.0.1`, port `5555`, chunk size `256`, null block `-1`, separate object groups enabled, transfer mode `lmcache_driven`, and memory-size argument `64.0`. The new policy value is `LRU`.
 
-1. Record the exact ATOM README SHA, LMCache source/installed version and dependency inventory. Read the actual first bash block beneath `### Running the MP server`; tokenize it with `shlex` after joining shell continuation lines. Require its command prefix to be `lmcache server`.
-2. Construct an `argparse.ArgumentParser` and call the real `ServerCommand().add_arguments(parser)`. **Do not call `execute()`.** That method would start services and is outside the test.
-3. Verify the composed parser actually contains the expected server and storage arguments, including `--eviction-policy`, `--null-block-id`, `--separate-object-groups`, `--supported-transfer-mode` and `--l1-size-gb`. `ServerCommand.add_arguments` catches `ImportError`; an incompletely registered parser is an invalid environment, not evidence for the recipe bug.
-4. Parse the original example's arguments. Require exit code 2 and a required-argument error identifying `--eviction-policy`. An unrelated unrecognized-option or dependency error does not satisfy this control.
-5. Add only `--eviction-policy LRU` and parse again. Require success and verify `eviction_policy == 'LRU'`, `null_block_id == -1`, group separation remains enabled, and transfer mode/chunk size/memory size match the example.
-6. Remove only the added argument and confirm the original rejection returns. Retain stdout/stderr and exit codes. Do not allocate a cache, construct a storage manager, download a model, modify a live service or claim GPU correctness.
-7. Recheck the latest PR before preparing a contribution. If the example is already corrected, stop rather than submit a duplicate.
+The receipt reports `REAL_PARSER_GATE_PASSED`, no parser replacements, complete argument registration, unchanged tracked input sources, and unchanged dependencies across all three arms. Module-origin checks cover the real server, distributed-storage, multiprocess and observability configuration modules from the pinned checkout.
 
-The existing ATOM wheel validator checks a narrower contract: imports and special MP server-flag parsing. It does not compose the full storage parser or validate this README invocation. A new permanent test is optional and should be discussed only if it can reuse the existing checks without introducing a large documentation-test framework.
+After downloading the artifact, a separate local check verified its archive hash, the three actual exit codes, both stderr rejection reasons, the exact two added argument tokens, the selected parsed values, and byte-identical before/after dependency inventories. It also verified that the staged patch and the experiment-generated patch change exactly the same two README lines. Their archive formatting differs, so their complete-file hashes differ; do not call the patch files byte-identical.
 
-## Existing review question — already posted; do not duplicate
+### Retained evidence
 
-[Comment on #2250](https://github.com/ROCm/ATOM/pull/2250#issuecomment-5822156319):
+- [Artifact 10846468941](https://github.com/kvnloo/ATOM/actions/runs/36094203732/artifacts/10846468941), `lmcache-mp-recipe-36094203732-1`; archive SHA-256 `fd1f2ce7cd9a2f9dfc67745e3a2dbade6f2fb0b8fb6228ad5de255edfafc9381`.
+- Contents: actual argument vectors, full parser stderr, parsed namespace, receipt, candidate patch, before/after dependencies, install log, native-build log and probe log. Workflow retention is 14 days; the source and this summary remain downstream.
+- ATOM README SHA-256: `bf405d4f793c2d492f2011d628629e2dc5f2f6e1748852375e37ec1396a0a20e`; Git blob `9727a8e3de3418e4b82c700d8c9e9c438a66e183`.
+- LMCache server source SHA-256: `749621e3c0ba4cca8cc722a22322d0ef833deb5aacb36368a9f212f65a3c9d7d`.
+- Prepared patch SHA-256: `16638d3d5b871ddac2139d97864601670c51240bc04b3bf1d5040d448507ccc5`.
+- Generated patch SHA-256: `1764b342bc1265c2d396d8e93d13d6b5deffd0679eb9be72ac83418669e5abe0`.
 
-> While tracing the native MP path, could we add `--eviction-policy LRU` to the existing `Running the MP server` example?
->
-> In the pinned LMCache `05fc77a`, `ServerCommand.add_arguments()` includes `add_storage_manager_args()`, which requires `--eviction-policy`; the command in this branch currently omits it. This is a source-level finding—I haven't run the full CLI or GPU path.
->
-> I also noticed the PR description still points to `mp/README.md`, while the guide is now in the parent offload README. Would a one-line recipe correction plus updating that pointer be the right scope? I'd keep the topology, checkpoint and lifetime design unchanged.
->
-> AI-assisted source review and drafting; no GPU results claimed.
+## Preserve the first attempt's failure
 
-No request for a benchmark is needed to answer this question. The next missing execution evidence is the small real-parser comparison, not a new AMD hardware campaign. The prepared patch lets the owner apply the exact change without our research apparatus.
+[Run 36075462321](https://github.com/kvnloo/ATOM/actions/runs/36075462321), job `107885553480`, installed CPU dependencies but lacked the compiled `lmcache.lmcache_native` extension. LMCache fell back to CLI-only initialization, and server argument registration was incomplete. The receipt correctly reported **`BLOCKED_ENVIRONMENT` at `PARSER_REGISTRATION`, with zero comparison arms executed**. It did not demonstrate the missing-policy error.
+
+[Artifact 10841834916](https://github.com/kvnloo/ATOM/actions/runs/36075462321/artifacts/10841834916), archive SHA-256 `8801c226a9f54a413129fabc02993c2ed7562526d40d9b5ada6b83947db10515`, was downloaded and its digest and empty comparison results were independently checked.
+
+The correction was confined to the [downstream workflow](https://github.com/kvnloo/ATOM/commit/bfe589c8085facd487d58d2a2123f611e76d70f6): build the unmodified pinned package's common CPU C++ extensions with `NO_GPU_EXT=1`, keeping native extensions enabled, before running the unchanged probe. The build runs with `MAX_JOBS=2`, retains extension checksums, and checks that tracked source is unchanged. No import stub or replacement parser was introduced, and no production source or dependency pin was changed to make the test pass.
+
+The package's [build-profile contract](https://github.com/LMCache/LMCache/blob/05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb/setup_extensions/build_profiles/__init__.py) distinguishes `NO_GPU_EXT` from `NO_NATIVE_EXT` and its legacy `NO_CUDA_EXT` alias. Disabling all native extensions would reproduce the missing dependency rather than solve it. This is a correction to our experiment environment, not a new ATOM defect or an additional upstream change request.
+
+## Source chain and scope
+
+[ServerCommand.add_arguments](https://github.com/LMCache/LMCache/blob/05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb/lmcache/cli/commands/server.py) composes [add_storage_manager_args](https://github.com/LMCache/LMCache/blob/05fc77a0a7ababd9a7f2e343a771bc4bbc5b65cb/lmcache/v1/distributed/config.py), which requires `--eviction-policy` and accepts `LRU`. The source-level finding is now reproduced at that real parser boundary.
+
+The existing ATOM wheel validator covers a different, narrower import/special-server-flag contract and is not changed here. The CPU common extensions were built to make real imports available; this does not qualify a ROCm wheel, GPU kernels, MP server startup, storage/retrieval, model output or runtime memory budgets.
+
+The source inputs and parser acceptance assertions stayed fixed across the environment correction. Installed packages were held constant within the successful run; no claim of identical complete environments across the failed and successful runs is made. All execution occurred in a fork-only hosted CPU job with read-only repository credentials. No server or GPU time is requested from maintainers for this documentation correction.
+
+## Handoff
+
+The next upstream message should contain the one-line patch, the passing real-parser evidence and its scope, not this full research record. The original question is already posted. Refresh #2250 before sending evidence and stop if the author has already applied the change. Applying the patch or editing the author's PR description remains separate from sharing the verified proposal.
+
+AI-assisted source analysis, experiment preparation and evidence review. Hardware execution: not run.
