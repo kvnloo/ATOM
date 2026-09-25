@@ -1,0 +1,88 @@
+name: Downstream LMCache RFC wave 01
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - experiments/rfc_wave_01/**
+      - .github/workflows/downstream-lmcache-rfc-wave01.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downstream-lmcache-rfc-wave01-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pinned-cpu-lane:
+    if: github.repository == 'kvnloo/ATOM'
+    name: ${{ matrix.lane }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [mp, lifetimes]
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      DO_NOT_TRACK: '1'
+      LMCACHE_TRACK_USAGE: 'false'
+      CUDA_VISIBLE_DEVICES: ''
+      ROCR_VISIBLE_DEVICES: ''
+    steps:
+      - name: Check out downstream experiments
+        uses: actions/checkout@v6
+        with:
+          path: experiment
+          persist-credentials: false
+
+      - name: Check out the unmodified merged source
+        uses: actions/checkout@v6
+        with:
+          repository: ROCm/ATOM
+          ref: 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
+          path: atom-source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install one CPU environment for this lane
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            python -m venv "$RUNNER_TEMP/rfc-lane-venv"
+            source "$RUNNER_TEMP/rfc-lane-venv/bin/activate"
+            python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+            SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.rfc python -m pip install -e ./atom-source
+            python -m pip install pytest msgpack quart jsonschema av pillow httpx
+            python -m pip freeze --all
+          } 2>&1 | tee install.log
+
+      - name: Run the selected contract and counterexample checks
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/rfc-lane-venv/bin/activate"
+          python experiment/experiments/rfc_wave_01/run_lane.py "${{ matrix.lane }}" \
+            --source atom-source --output evidence 2>&1 | tee driver.log
+
+      - name: Retain source, assertions and environment evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: rfc-wave01-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/
+            install.log
+            driver.log
+          if-no-files-found: error
+          retention-days: 14
