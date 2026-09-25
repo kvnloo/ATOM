@@ -24,7 +24,7 @@ jobs:
       - name: Check out candidate with history
         uses: actions/checkout@v6
         with:
-          ref: 1a07d04f846964330cab3f5beeef40542fda205f
+          ref: b69f3726ab1949e5bf2cc4e1911fc1da0691338a
           fetch-depth: 0
           persist-credentials: false
 
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/lookup-venv/bin/activate"
           BASE=68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
-          HEAD=1a07d04f846964330cab3f5beeef40542fda205f
+          HEAD=b69f3726ab1949e5bf2cc4e1911fc1da0691338a
           TEST=tests/test_dense_lookup_initialization.py
           cp "$TEST" "$RUNNER_TEMP/lookup-test.py"
 
@@ -142,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/lookup-venv/bin/activate"
-          git checkout --detach 1a07d04f846964330cab3f5beeef40542fda205f >/dev/null
+          git checkout --detach b69f3726ab1949e5bf2cc4e1911fc1da0691338a >/dev/null
           PYTHONPATH="$PWD" python -m pytest \
             tests/test_dense_lookup_initialization.py \
             tests/test_dense_offload_connector.py \
