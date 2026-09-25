@@ -20,7 +20,6 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       CUDA_VISIBLE_DEVICES: ''
       ROCR_VISIBLE_DEVICES: ''
-      EVIDENCE: ${{ runner.temp }}/profile-evidence
     steps:
       - name: Check out candidate with history
         uses: actions/checkout@v6
@@ -36,6 +35,8 @@ jobs:
 
       - name: Install one CPU environment
         shell: bash
+        env:
+          EVIDENCE: ${{ runner.temp }}/profile-evidence
         timeout-minutes: 12
         run: |
           set -euo pipefail
@@ -49,6 +50,8 @@ jobs:
 
       - name: Prove original red, candidate green, original red
         shell: bash
+        env:
+          EVIDENCE: ${{ runner.temp }}/profile-evidence
         timeout-minutes: 5
         run: |
           set -euo pipefail
@@ -125,6 +128,8 @@ jobs:
 
       - name: Run focused existing suites and style checks on candidate
         shell: bash
+        env:
+          EVIDENCE: ${{ runner.temp }}/profile-evidence
         timeout-minutes: 8
         run: |
           set -euo pipefail
