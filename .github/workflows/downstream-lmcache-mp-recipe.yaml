@@ -66,6 +66,25 @@ jobs:
             python -m pip freeze --all
           } 2>&1 | tee mp-recipe-install.log
 
+      - name: Build the pinned package's required CPU native extensions
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            source "$RUNNER_TEMP/mp-recipe-venv/bin/activate"
+            python -m pip install ninja wheel
+            (
+              cd lmcache-source
+              # NO_GPU_EXT preserves the common CPU C++ extensions. The
+              # legacy NO_CUDA_EXT flag would incorrectly skip those too.
+              NO_GPU_EXT=1 NO_NATIVE_EXT=0 NO_CUDA_EXT=0 MAX_JOBS=2 \
+                python setup.py build_ext --inplace
+              find lmcache -maxdepth 1 -type f -name '*.so' -exec sha256sum {} +
+              test -z "$(git status --porcelain)"
+            )
+          } 2>&1 | tee mp-recipe-native-build.log
+
       - name: Parse the original, corrected and restored example
         timeout-minutes: 3
         shell: bash
@@ -84,6 +103,7 @@ jobs:
           path: |
             mp-recipe-results/
             mp-recipe-install.log
+            mp-recipe-native-build.log
             mp-recipe-probe.log
           if-no-files-found: error
           retention-days: 14
