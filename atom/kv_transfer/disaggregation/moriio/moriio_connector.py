@@ -820,7 +820,7 @@ class MoRIIOConnector(KVConnectorBase):
         with self.moriio_wrapper.lock:
             to_remove = []
             for req_id, status_list in self._recving_transfers.items():
-                if status_list[-1].Succeeded():
+                if status_list and all(status.Succeeded() for status in status_list):
                     done_req_ids.add(req_id)
                     # the Decode req_id(request_id) ,Prefill req_id(transfer_id)
                     # so we need to use transfer_id to send notify
