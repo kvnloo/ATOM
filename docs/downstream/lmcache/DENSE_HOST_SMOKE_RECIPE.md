@@ -1,179 +1,79 @@
-# Dense host-memory smoke: pinned community recipe
+# Dense host-memory smoke: reviewed community recipe
 
-Status, 2026-09-24: **source reviewed; recipe statically checked; GPU execution NOT RUN by us**. Parent: [RFC #1](https://github.com/kvnloo/ATOM/issues/1). Author guidance: [NidhoggD1 on #2339](https://github.com/ROCm/ATOM/pull/2339#issuecomment-5821947101).
+Updated 2026-09-25 after [the author's review](https://github.com/ROCm/ATOM/pull/2339#issuecomment-5831522164). **Acceptance table and running without the outer runner are author-approved. GPU execution by us remains NOT RUN.** Parent: [RFC #1](https://github.com/kvnloo/ATOM/issues/1).
 
-## One bounded claim
+The original full shell, GPU preflight and JSON-result instructions remain available at the [immutable prepared recipe](https://github.com/kvnloo/ATOM/blob/4feea25b027927a2cff1648d83f4931672f943a5/docs/downstream/lmcache/DENSE_HOST_SMOKE_RECIPE.md#execution-recipe--not-executed-here). Those commands and the author's smoke are unchanged. This revision supersedes its historical-checksum uncertainty and blanket cleanup-error rule with the precise boundaries below.
 
-On one compatible AMD GPU, the real dense worker store path waits on the producer on the actual pack thread, publishes to `LocalCPUBackend`, and retrieves identical K/V and scale tensors after the destination GPU tensors are cleared. This is a connector smoke, **not** model accuracy, performance, a forced ordering-race experiment, TP quorum, failed-save retry, or complete serving-system qualification.
+## One bounded claim, not full-system certification
 
-## Pinned inputs and separate evidence
+The real dense worker store path uses the producer dependency on the actual pack thread, publishes to `LocalCPUBackend`, and retrieves identical K/V and scale tensors after clearing the destination tensors. Normal registration, scheduler-driven HBM eviction, model forward, TP quorum, failed-save retries, a forced ordering-race comparison and performance are not exercised by this smoke.
 
-| Input / evidence | Exact reference |
+The smoke manually connects the real engine and codec to the worker and supplies synthetic request metadata. Its save/load worker path is real; the absent scheduler and distributed environment must not be inferred from the word 'production'. One process, one compatible GPU, no model and no lookup server are needed. [Author review](https://github.com/ROCm/ATOM/pull/2339#issuecomment-5831522164).
+
+## Exact inputs and provenance
+
+| Field | Value / evidence class |
 |---|---|
-| ATOM target for a new run | `e9be221f637d6a7e194e0d3201dbc9ddc3119067` |
-| Author-reported previous GPU run | `4a8d76bea929a8925f299f8db98f2408a20cea7d`; MI350X, one GPU, no model, LMCache `0.4.5`, ROCm `7.2.53211`, torch `2.10.0+rocm7.2.4` |
-| Captured Gist snapshot | `c881bce790f14d57fa026219af2d4466c2e4a154` |
-| Smoke file | `pr2339_gpu_smoke.py`; 11,672 bytes; SHA-256 `fc699dbc3465729fb8fa17593ee90c9830a28c5a7d41343a302edc43b968d342` |
-| Author's environment-specific runner | `pr2339_gpu_smoke_runner.py`; 6,167 bytes; SHA-256 `daede71dd36bd6577c2b8a3e0c016151f324ab61cd8e9c9e077f7f106e57d627` |
+| Keep the reviewed target | `e9be221f637d6a7e194e0d3201dbc9ddc3119067` |
+| Upstream merge, verified via PR metadata | `68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e`; [#2339 is merged](https://github.com/ROCm/ATOM/pull/2339) |
+| Historical GPU result, author-reported | `4a8d76bea929a8925f299f8db98f2408a20cea7d`; MI350X, one GPU, LMCache `0.4.5`, ROCm `7.2.53211`, torch `2.10.0+rocm7.2.4`, no model |
+| Captured Gist | `c881bce790f14d57fa026219af2d4466c2e4a154` |
+| Smoke SHA-256 | `fc699dbc3465729fb8fa17593ee90c9830a28c5a7d41343a302edc43b968d342` |
+| Outer runner SHA-256 | `daede71dd36bd6577c2b8a3e0c016151f324ab61cd8e9c9e077f7f106e57d627` |
 
-Sources: [immutable Gist snapshot](https://gist.github.com/NidhoggD1/4768a59519b2e4a9c83e80037a21db79/c881bce790f14d57fa026219af2d4466c2e4a154), [source-capture run](https://github.com/kvnloo/ATOM/actions/runs/36064272664), [captured files and receipt](https://github.com/kvnloo/ATOM/actions/runs/36064272664/artifacts/10834758626). Artifact archive SHA-256: `1f615c5e01138b1144fab174956b88b3b3cb94d64c226ec8ade8f4df507e5c3c`; retention is 14 days. The Gist supplies durable source references.
+The author now supplies both historical launch-time checksums from their `RUN.json`; they exactly match our retained source-capture checksums. Record **AUTHOR_ATTESTED_HISTORICAL_BYTES_MATCH_CAPTURE**, replacing 'historical byte identity unknown'. We have not independently fetched that historical `RUN.json` or rerun its hardware experiment. Do not transform the author's attestation into our own GPU result.
 
-The author's earlier report does not supply this captured file's checksum, so we have not independently matched historical executed bytes to this snapshot. Do not label the captured snapshot or the new ATOM target as hardware-reproduced. The capture job downloaded and syntax-parsed source; it did not import or execute either script.
+The author permits either the head or merge revision. Keep the existing head pin so this recipe and its strict preflight remain one consistent cell. Testing the merge revision later requires changing every recorded/asserted target together and recording a new cell; a merged PR is not itself a smoke run at the merge commit.
 
-## What the source actually exercises
+Source: [pinned Gist](https://gist.github.com/NidhoggD1/4768a59519b2e4a9c83e80037a21db79/c881bce790f14d57fa026219af2d4466c2e4a154), [source-capture run](https://github.com/kvnloo/ATOM/actions/runs/36064272664), [author review and historical checksum attestation](https://github.com/ROCm/ATOM/pull/2339#issuecomment-5831522164).
 
-The smoke builds two synthetic layers, four blocks, block size four, chunk size eight and 16 tokens. K/V payloads are opaque `uint8`; scales are `float32`. It requires fused chunk-major staging. LMCache storage/retrieval is restricted to `LocalCPUBackend`, with `max_local_cpu_size=0.01`. That setting is not a cap on total process or GPU memory.
+## Acceptance table — confirmed by the author
 
-It constructs the real codec, GPU connector and LMCache engine, then manually attaches them to `DenseOffloadConnector` and supplies synthetic request metadata. The save/load calls, background worker and packing/retrieval are real. **Normal `register_kv_caches()`, scheduler allocation/eviction, model forward, lookup-server setup and distributed collectives are not exercised.** The single-rank engine uses stand-in collective callbacks. The two instrumentation wrappers delegate to the original pack/wait methods; statistics are read on the thread doing the pack.
-
-| Acceptance observation | Exact source check |
+| Observation | Required result |
 |---|---|
-| Producer dependency | Exactly one wait; event is a real torch event; thread differs from dispatch and is observed inside the pack call; pack stream exists. |
-| Fence instrumentation | Exactly one captured store-stat record with `producer_fenced == 1`. |
-| Source groups | Exactly two source-safe callbacks for the fixed geometry. |
-| Save operation | Exactly one successful `dense.page.store` and one successful `dense.page.source_quiescent` completion for the same `SaveOperationId`. |
-| Host publication | Lookup specifically in `LocalCPUBackend` returns all 16 tokens. |
-| Reload | Clear all GPU K/V and scales, synchronize the clear, dispatch a load with HBM floor zero, wait for completion, then compare all eight layer/plane tensors with `torch.equal`. |
+| Producer dependency | Exactly one real event wait inside `batched_from_gpu`, on a thread other than the dispatcher, with a live pack stream. |
+| Store instrumentation | Exactly one store-side stats record with `producer_fenced == 1`; do not count load-side calls. |
+| Source safety | Two source-safe groups for the fixed 16-token/chunk-8 geometry. |
+| Operation completion | One successful `dense.page.store` plus one `dense.page.source_quiescent` for the same `SaveOperationId`. |
+| Host attribution | 16/16-token lookup specifically in `LocalCPUBackend`. |
+| Restored bytes | All eight tensors (two layers, K/V/k_scale/v_scale) compare equal after zeroing and actual retrieval. |
 
-Zeroing the destination tensors removes the unchanged-destination explanation for this smoke, but is not scheduler-driven HBM eviction. The script has no deliberate delayed-write/no-fence control. A pass verifies the dependency is used and the round trip is exact; it does not quantify a race frequency. The explicit synchronizations after clearing and retrieval remain unchanged.
+Zeroing destination tensors is not scheduler-driven HBM eviction. The smoke has no deliberately delayed-write/no-fence control; it demonstrates the asserted event plumbing and exact round trip, not a race frequency. [Author review](https://github.com/ROCm/ATOM/pull/2339#issuecomment-5831522164).
 
-## Why the supplied outer runner is not copied into a generic command
+## Portable environment: omit the machine-specific outer runner
 
-The runner pins the author's `neurospark/glm52-mi35x` image, labels and dependency paths. It uses host IPC, broad ROCm device mounts, relaxed seccomp/label options and a writable results mount. These are environment assumptions for the machine owner to review, not permissions we should grant automatically. Its raw records include host/source paths and Docker inspection data; do not publish them without review.
+The author confirms coverage is unchanged without their outer runner. The smoke does not require `--ipc host`, a special network mode or a 4 GiB shared-memory allocation. Do not copy relaxed container permissions, device mappings, source paths or image-private assumptions into a generic recipe. The owner still selects an isolated compatible ROCm environment and available GPU.
 
-It also sets `container_removed=True` after an unchecked `docker rm`, so that field alone is not verified cleanup. The recipe below reuses the **unchanged smoke script** inside an already provisioned, owner-approved isolated environment instead of reproducing that outer runner. It does not build/pull an image, install packages, launch a serving process or change any production source.
+Preserve the original preflight: exact clean checkout, script SHA-256, LMCache `0.4.5`, exactly one visible ROCm GPU, and the real `connector.__file__` import origin. In particular, **put `PR_SRC` first on `PYTHONPATH`**. The author's image also includes `/app/ATOM`; omitting this check can silently test the wrong checkout. Export `PR_COMMIT` and `SMOKE_RESULT`, the two environment values the smoke reads.
 
-## Execution recipe — not executed here
+Use the [unchanged commands and preflight](https://github.com/kvnloo/ATOM/blob/4feea25b027927a2cff1648d83f4931672f943a5/docs/downstream/lmcache/DENSE_HOST_SMOKE_RECIPE.md#execution-recipe--not-executed-here) only after the owner agrees to the isolated environment and time budget. No serving process, model download, package installation, source reset or GPU reset is requested. Record image/build provenance in addition to version strings; do not export credentials or a full environment dump.
 
-A volunteer first chooses an isolated compatible ROCm development environment and one available GPU. Use the installed environment's Python, real LMCache `0.4.5` and compatible ATOM/Triton dependencies. A different build is a new qualification cell; our modern CPU diagnostic environment is not this GPU environment.
+## Known teardown log: retain it, do not declare cleanup successful
 
-Obtain and review `pr2339_gpu_smoke.py` from the pinned snapshot/artifact above. Set `PR_SRC` to a separate clean checkout at the full target SHA, `SMOKE_DIR` to the directory containing that file, and `SMOKE_GPU` to the owner-approved device selector. No checkout is reset by these commands. Do not set these to a live deployment. Retain any dependency-specific Python paths only from the approved environment.
+The author reports the following non-raised log during `LMCacheEngineBuilder.destroy()` in LMCache `0.4.5`, after `result.json` is written, while the process still exits zero:
 
-### 1. Freeze source, output directory and environment
-
-```bash
-set -euo pipefail
-: "${PR_SRC:?Set the isolated target checkout}"
-: "${SMOKE_DIR:?Set the reviewed smoke source directory}"
-: "${SMOKE_GPU:?Set the owner-approved ROCm device selector}"
-export PR_SRC SMOKE_DIR SMOKE_GPU
-export PR_COMMIT=e9be221f637d6a7e194e0d3201dbc9ddc3119067
-export ROCR_VISIBLE_DEVICES="$SMOKE_GPU"
-export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="$PR_SRC${PYTHONPATH:+:$PYTHONPATH}"
-RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/atom-pr2339.XXXXXXXX")
-export RUN_DIR
-export SMOKE_RESULT="$RUN_DIR/result.json"
+```text
+LMCache ERROR: Error closing backend LocalCPUBackend: tuple index out of range
 ```
 
-Run this preflight using the same Python as the smoke. It touches the selected GPU only in this future, owner-approved environment; it is not a CPU-only test.
+For this exact pinned smoke/dependency configuration, **that documented line alone does not invalidate otherwise valid transfer observations**. Preserve the complete stderr and annotate `KNOWN_TEARDOWN_LOG`. This is a version-scoped, author-reported exception, not permission to suppress all errors, modify the backend, or accept unknown cleanup.
 
-```python
-import hashlib
-import importlib.metadata as md
-import json
-import os
-from pathlib import Path
-import subprocess
-import sys
+Keep three separate outcomes:
 
+| Dimension | What qualifies it |
+|---|---|
+| Bounded transfer result | Exact pinned provenance, exit zero, all acceptance observations and complete result JSON. |
+| Diagnostic review | Known exact teardown message recorded separately; any additional/changed error, unreviewed diagnostics, nonzero exit or different dependency requires review. |
+| Process/resource cleanup | Separate machine-owner observation. A successful transfer, zero exit, `container_removed=True`, or absence of error text does not establish this. |
 
-def require(condition, message):
-    if not condition:
-        raise RuntimeError(message)
+The author reports independently checking no remaining container, zero GPU VRAM use and KFD process count returning to baseline for their historical run. Retain that as **author-reported historical cleanup**, not evidence about a future volunteer's run. Do not reset a device or terminate unrelated processes to produce a clean-looking result.
 
+The original result-checking Python validates result fields and provenance; it is **not a stderr classifier or a process-cleanup check**. Run it, then review the actual diagnostics and cleanup separately using this table. Missing JSON, timeouts, nonzero exits or false/missing transfer observations still block acceptance. An unexpected backend list still requires investigation.
 
-source = Path(os.environ['PR_SRC']).resolve(strict=True)
-smoke = Path(os.environ['SMOKE_DIR']).resolve(strict=True) / 'pr2339_gpu_smoke.py'
-expected = 'e9be221f637d6a7e194e0d3201dbc9ddc3119067'
-head = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
-dirty = subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain'], text=True).strip()
-require(head == expected and not dirty, 'Source must be the clean pinned checkout')
-smoke_hash = hashlib.sha256(smoke.read_bytes()).hexdigest()
-require(smoke_hash == 'fc699dbc3465729fb8fa17593ee90c9830a28c5a7d41343a302edc43b968d342', 'Smoke source changed')
-require(md.version('lmcache') == '0.4.5', 'This cell requires LMCache 0.4.5')
+## Return packet and next gate
 
-import torch
-import triton
-from atom.kv_transfer.offload.dense import connector
+Return exact source/script/image or build identities, preflight, result JSON, exit code, complete sanitized stderr/stdout, diagnostic classification and the owner's separate cleanup observation (or explicitly `UNKNOWN`). No model weights, production prompts, credentials, container administration access or broad benchmark is needed.
 
-require(Path(connector.__file__).resolve() == source / 'atom/kv_transfer/offload/dense/connector.py', 'Wrong ATOM import origin')
-require(bool(torch.version.hip) and torch.cuda.is_available(), 'Compatible ROCm GPU required')
-require(torch.cuda.device_count() == 1, 'Select exactly one visible GPU for this cell')
-record = {
-    'status': 'PREFLIGHT_ONLY', 'atom_sha': head, 'smoke_sha256': smoke_hash,
-    'python': sys.version, 'torch': torch.__version__, 'hip': torch.version.hip,
-    'lmcache': md.version('lmcache'), 'triton': getattr(triton, '__version__', 'UNKNOWN'),
-    'gpu': torch.cuda.get_device_name(0), 'model_loaded': False,
-    'gist_revision': 'c881bce790f14d57fa026219af2d4466c2e4a154',
-}
-(Path(os.environ['RUN_DIR']) / 'preflight.json').write_text(json.dumps(record, indent=2) + '\n')
-```
+The recipe's source-review gate is satisfied. **Next: one opt-in compatible hardware owner, one unchanged script, one pinned target, one bounded claim.** No hardware owner is assigned or assumed by this document, and no volunteer request has been posted from this update. A source-review approval is not endorsement of the wider RFC or its future architecture.
 
-Also record the selected image digest or environment provenance and, when available, LMCache wheel/source identity. Version strings alone are not binary hashes. Preserve the source and environment until the smoke finishes; any mutation invalidates this cell.
-
-### 2. Run only the original smoke and retain its actual exit status
-
-```bash
-# Only proceed after preflight succeeds and the owner approves this time budget.
-set +e
-timeout --signal=TERM --kill-after=20s 600s \
-  python "$SMOKE_DIR/pr2339_gpu_smoke.py" \
-  >"$RUN_DIR/stdout.log" 2>"$RUN_DIR/stderr.log"
-smoke_exit=$?
-set -e
-printf '%s\n' "$smoke_exit" >"$RUN_DIR/exit-code.txt"
-printf 'Evidence directory: %s\n' "$RUN_DIR"
-```
-
-The outer deadline applies only to this isolated smoke process, never a shared server. Timeout, forced termination, missing JSON or cleanup errors are not a pass; stop and let the machine owner inspect remaining process/device state. Do not reset a GPU or kill unrelated processes. The smoke has 30-second polling limits internally, but setup or blocking GPU calls can outlast those loops.
-
-### 3. Check the retained result, not a green-looking log line
-
-```python
-import json
-import os
-from pathlib import Path
-
-root = Path(os.environ['RUN_DIR'])
-code = int((root / 'exit-code.txt').read_text().strip())
-if code != 0:
-    raise RuntimeError(f'Smoke did not complete successfully: exit {code}')
-preflight = json.loads((root / 'preflight.json').read_text())
-result = json.loads((root / 'result.json').read_text())
-expected = {
-    'status': 'passed',
-    'pr_commit': 'e9be221f637d6a7e194e0d3201dbc9ddc3119067',
-    'producer_event_waits': 1,
-    'producer_wait_on_pack_thread': True,
-    'producer_fenced_stat': 1,
-    'source_safe_groups': 2,
-    'store_terminal_succeeded': True,
-    'source_quiescent_reported': True,
-    'host_tier_hit_tokens': 16,
-    'requested_tokens': 16,
-    'exact_gpu_kv_match': True,
-}
-for field, value in expected.items():
-    if type(result.get(field)) is not type(value) or result[field] != value:
-        raise RuntimeError(f'Missing or incorrect observation: {field}')
-if preflight.get('atom_sha') != expected['pr_commit'] or preflight.get('smoke_sha256') != 'fc699dbc3465729fb8fa17593ee90c9830a28c5a7d41343a302edc43b968d342':
-    raise RuntimeError('Missing pinned input provenance')
-if preflight.get('lmcache') != '0.4.5' or not result.get('hip_version'):
-    raise RuntimeError('Wrong qualification environment')
-if result.get('torch_version') != preflight.get('torch') or result.get('hip_version') != preflight.get('hip'):
-    raise RuntimeError('Preflight and smoke environments differ')
-if result.get('backends') != ['LocalCPUBackend']:
-    raise RuntimeError('Unexpected storage backends; inspect before claiming attribution')
-print('PASSED_BOUNDED_HOST_SMOKE: not TP, retry, model, race-rate or performance qualification')
-```
-
-The source initializes its JSON result only after some setup; exceptions before that point, or during final cleanup, may leave no result file. Require both zero process exit and valid observations. Do not reduce this to checking `status` alone. An unexpected backend list requires inspection rather than silently relaxing attribution.
-
-## Return packet and next decision
-
-Return the pinned input identifiers, preflight, result, exit code, sanitized logs and actual image/build provenance. Do not return prompts, model weights, credentials, all environment variables or raw Docker inspection by default. No volunteer is asked to rerun a model benchmark or debug unrelated suites.
-
-If this cell passes, it adds one independently reproduced single-GPU connector result at the target revision. TP quorum, failed-save retry and model behavior remain separate experiments. Before asking for GPU time, the next contribution is a short source/recipe review of this packet; the author has already supplied the script and need not reconstruct our plan.
-
-Local preparation checks: both captured Python files parse; the recipe's shell and Python blocks pass syntax checks. The result-checking block is additionally exercised with synthetic receipts; those checks test receipt handling, not GPU behavior. Detailed results are in `DENSE_HOST_SMOKE_PREPARATION.json` beside this document. AI-assisted source review and drafting; the original smoke remains the author's code.
+A downstream synthetic review-rule check exercises known versus unexpected diagnostics and incomplete results; it does not replay real LMCache teardown or qualify a GPU. The original smoke remains unchanged and authored by NidhoggD1. AI-assisted recipe maintenance and evidence review.
