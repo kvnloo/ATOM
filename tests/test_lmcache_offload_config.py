@@ -354,6 +354,7 @@ def test_scheduler_and_worker_metadata_share_page_namespace(monkeypatch):
     assert scheduler.worker_id == 0
     assert worker.worker_id == 3
 
+
 def _install_lookup_scope_metadata_modules(monkeypatch):
     @dataclass
     class _Metadata:
@@ -394,7 +395,10 @@ def test_lmcache_metadata_rejects_lookup_scope_outside_replica_world(
 
     with pytest.raises(
         ValueError,
-        match=rf"lookup_server_worker_ids must be within the replica-local world \[0, {world_size}\)",
+        match=(
+            rf"lookup_server_worker_ids must be within the replica-local world "
+            rf"\\[0, {world_size}\\)"
+        ),
     ):
         offcfg.build_lmcache_metadata(_config(), cfg, world_size, 0)
 
