@@ -24,7 +24,7 @@ jobs:
       - name: Check out candidate with history
         uses: actions/checkout@v6
         with:
-          ref: a53e9b8e7322661dbda999fc02bd5fc517b6c6b8
+          ref: 0622a7a488d59c947a5692badbe3f2e710473700
           fetch-depth: 0
           persist-credentials: false
 
@@ -48,7 +48,7 @@ jobs:
           python -m pip install pytest msgpack quart jsonschema av pillow httpx black ruff
           python -m pip freeze --all | tee "$EVIDENCE/dependencies-before.txt"
 
-      - name: Prove original red, candidate green, original red
+      - name: Prove metadata boundary original red, candidate green, original red
         shell: bash
         env:
           EVIDENCE: ${{ runner.temp }}/scope-evidence
@@ -57,8 +57,8 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/scope-venv/bin/activate"
           BASE=68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
-          HEAD=a53e9b8e7322661dbda999fc02bd5fc517b6c6b8
-          TEST=tests/test_dense_lookup_scope.py
+          HEAD=0622a7a488d59c947a5692badbe3f2e710473700
+          TEST=tests/test_lmcache_offload_config.py
           cp "$TEST" "$RUNNER_TEMP/scope-test.py"
 
           run_arm() {
@@ -68,6 +68,7 @@ jobs:
             cp "$RUNNER_TEMP/scope-test.py" "$TEST"
             set +e
             PYTHONPATH="$PWD" python -m pytest "$TEST" -q -rs \
+              -k 'lmcache_metadata_rejects_lookup_scope_outside_replica_world or lmcache_metadata_accepts_lookup_scope_within_replica_world' \
               --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
             local rc=$?
             set -e
@@ -111,27 +112,36 @@ jobs:
           original, candidate, restored = [
               receipt["arms"][name] for name in ["original", "candidate", "restored"]
           ]
-          assert len(original["cases"]) == len(candidate["cases"]) == len(restored["cases"]) == 5
+          assert len(original["cases"]) == len(candidate["cases"]) == len(restored["cases"]) == 6
           assert original["cases"].keys() == candidate["cases"].keys() == restored["cases"].keys()
           expected_red = {
               key
               for key in original["cases"]
-              if key.startswith("test_invalid_lookup_scope_fails_before_optional_client_fallback[")
+              if key.startswith("test_lmcache_metadata_rejects_lookup_scope_outside_replica_world[")
           }
           assert len(expected_red) == 3
           for arm in [original, restored]:
               assert arm["exit_code"] == 1
-              failed = {k for k, v in arm["cases"].items() if v["status"] in {"failure", "error"}}
+              failed = {
+                  key
+                  for key, result in arm["cases"].items()
+                  if result["status"] in {"failure", "error"}
+              }
               assert failed == expected_red
               assert all("DID NOT RAISE" in arm["cases"][key]["detail"] for key in expected_red)
+              assert all(
+                  result["status"] == "passed"
+                  for key, result in arm["cases"].items()
+                  if key not in expected_red
+              )
           assert candidate["exit_code"] == 0
-          assert all(v["status"] == "passed" for v in candidate["cases"].values())
-          receipt["status"] = "LOOKUP_SCOPE_FAILFAST_GATE_PASSED"
+          assert all(result["status"] == "passed" for result in candidate["cases"].values())
+          receipt["status"] = "LOOKUP_SCOPE_METADATA_GATE_PASSED"
           (evidence / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
           print(receipt["status"])
           PY
 
-      - name: Run focused suite and style checks on candidate
+      - name: Run focused config and scheduler suites with style checks
         shell: bash
         env:
           EVIDENCE: ${{ runner.temp }}/scope-evidence
@@ -139,20 +149,17 @@ jobs:
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/scope-venv/bin/activate"
-          git checkout --detach a53e9b8e7322661dbda999fc02bd5fc517b6c6b8 >/dev/null
+          git checkout --detach 0622a7a488d59c947a5692badbe3f2e710473700 >/dev/null
           PYTHONPATH="$PWD" python -m pytest \
-            tests/test_dense_lookup_scope.py \
+            tests/test_lmcache_offload_config.py \
             tests/test_dense_offload_connector.py \
-            tests/test_lmcache_offload_connector.py \
             -q -rs --junitxml="$EVIDENCE/focused.xml" 2>&1 | tee "$EVIDENCE/focused.log"
           python -m black --check \
             atom/kv_transfer/offload/config.py \
-            atom/kv_transfer/offload/dense/connector.py \
-            tests/test_dense_lookup_scope.py 2>&1 | tee "$EVIDENCE/black.log"
+            tests/test_lmcache_offload_config.py 2>&1 | tee "$EVIDENCE/black.log"
           python -m ruff check \
             atom/kv_transfer/offload/config.py \
-            atom/kv_transfer/offload/dense/connector.py \
-            tests/test_dense_lookup_scope.py 2>&1 | tee "$EVIDENCE/ruff.log"
+            tests/test_lmcache_offload_config.py 2>&1 | tee "$EVIDENCE/ruff.log"
           git diff --check 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e HEAD | tee "$EVIDENCE/diff-check.log"
           python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
           cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
