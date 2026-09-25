@@ -1,6 +1,6 @@
 # MP recipe review: one argument, one stale pointer
 
-Downstream draft, 2026-09-24. **Not posted upstream; no parser or server execution claimed.** Full analysis: [MP compatibility triage](MP_COMPATIBILITY_TRIAGE.md).
+Downstream preparation record. The [source-level question is posted](https://github.com/ROCm/ATOM/pull/2250#issuecomment-5822156319); no owner reply was present at the latest check. **The real-parser run remains queued; no parser or server execution is claimed.** Full analysis: [MP compatibility triage](MP_COMPATIBILITY_TRIAGE.md).
 
 ## Target and verified source chain
 
@@ -12,20 +12,26 @@ Downstream draft, 2026-09-24. **Not posted upstream; no parser or server executi
 
 The existing launch example supplies host, port, chunk size, null-block marker, group separation, transfer mode and memory size, but omits the required policy. With the full argument set registered, argument parsing rejects that invocation before a server is launched. This conclusion comes from source composition; it is not an observed CLI run.
 
-## Proposed documentation-only change
+## Prepared documentation-only patch
 
-The only file-content change proposed for the author's branch is:
+[Downloadable unified patch](mp-recipe-eviction-policy.patch), prepared against the author's **`feat/dsv4-lmcache-mp` branch**, not `main`:
 
 ```diff
 -  --supported-transfer-mode lmcache_driven --l1-size-gb 64
 +  --supported-transfer-mode lmcache_driven --l1-size-gb 64 --eviction-policy LRU
 ```
 
-Separately, update the PR description's `atom/kv_transfer/offload/mp/README.md` pointer to the existing parent README's MP section. A contributor cannot fix the author's PR description by changing a repository file.
+The source range was refreshed from the exact PR head: README lines 141–155, full-file Git blob `9727a8e3de3418e4b82c700d8c9e9c438a66e183`. Patch SHA-256: `16638d3d5b871ddac2139d97864601670c51240bc04b3bf1d5040d448507ccc5`.
+
+Local preparation actually checked both command blocks with `bash -n`, verified with `shlex` that the candidate adds only the two tokens `--eviction-policy` and `LRU`, and checked `git apply --numstat`: **one insertion, one deletion, one README**. These are syntax/token/diff-shape checks, not the LMCache parser or a full-checkout apply check. No server command was executed, and the patch has not been applied to a production file or submitted upstream.
+
+**Submission boundary:** do not open a PR from this research branch to upstream `main`; it contains unrelated experiment material. A future docs-only commit should be applied by the owner, or based on the author's feature branch if they prefer a stacked PR. After #2250 merges, refresh against main and stop if the example is already fixed. The description's stale link is an author edit, not another repository file to create.
 
 `LRU` is an explicit choice for this example, not a change to LMCache defaults or an optimization claim. The existing 64 GB budget is shown only to identify the minimal diff; it is not a recommendation to allocate memory on a collaborator's machine. **No server-start command is to be executed as part of this docs validation.**
 
 ## Parser-only acceptance plan
+
+[Existing hosted real-parser experiment](https://github.com/kvnloo/ATOM/actions/runs/36075462321) is queued at this checkpoint. It is not rerun or duplicated just because it is waiting. The returned status does not establish why GitHub has not assigned a runner.
 
 Use an isolated environment in which the pinned full LMCache package and compatible binary dependencies can be imported. This check requires no model, no GPU transfer and no running server, but import/backend-selection requirements may still block a CPU-only environment. Report that as an environment block; do not quietly replace the parser with a mock.
 
@@ -39,7 +45,9 @@ Use an isolated environment in which the pinned full LMCache package and compati
 
 The existing ATOM wheel validator checks a narrower contract: imports and special MP server-flag parsing. It does not compose the full storage parser or validate this README invocation. A new permanent test is optional and should be discussed only if it can reuse the existing checks without introducing a large documentation-test framework.
 
-## Review comment — NOT POSTED
+## Existing review question — already posted; do not duplicate
+
+[Comment on #2250](https://github.com/ROCm/ATOM/pull/2250#issuecomment-5822156319):
 
 > While tracing the native MP path, could we add `--eviction-policy LRU` to the existing `Running the MP server` example?
 >
@@ -49,4 +57,4 @@ The existing ATOM wheel validator checks a narrower contract: imports and specia
 >
 > AI-assisted source review and drafting; no GPU results claimed.
 
-No request for a benchmark is needed to answer this question. If the owner agrees, the next missing evidence is the small real-parser comparison, not a new AMD hardware campaign.
+No request for a benchmark is needed to answer this question. The next missing execution evidence is the small real-parser comparison, not a new AMD hardware campaign. The prepared patch lets the owner apply the exact change without our research apparatus.
