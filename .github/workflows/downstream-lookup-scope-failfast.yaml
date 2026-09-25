@@ -24,7 +24,7 @@ jobs:
       - name: Check out candidate with history
         uses: actions/checkout@v6
         with:
-          ref: 0622a7a488d59c947a5692badbe3f2e710473700
+          ref: 6c15225b2bf9ceea9e4a4a4eb85774212c212b75
           fetch-depth: 0
           persist-credentials: false
 
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/scope-venv/bin/activate"
           BASE=68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
-          HEAD=0622a7a488d59c947a5692badbe3f2e710473700
+          HEAD=6c15225b2bf9ceea9e4a4a4eb85774212c212b75
           TEST=tests/test_lmcache_offload_config.py
           cp "$TEST" "$RUNNER_TEMP/scope-test.py"
 
@@ -149,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/scope-venv/bin/activate"
-          git checkout --detach 0622a7a488d59c947a5692badbe3f2e710473700 >/dev/null
+          git checkout --detach 6c15225b2bf9ceea9e4a4a4eb85774212c212b75 >/dev/null
           PYTHONPATH="$PWD" python -m pytest \
             tests/test_lmcache_offload_config.py \
             tests/test_dense_offload_connector.py \
