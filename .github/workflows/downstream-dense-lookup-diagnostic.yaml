@@ -1,0 +1,167 @@
+name: Downstream dense lookup diagnostic policy
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-dense-lookup-diagnostic.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: ''
+      ROCR_VISIBLE_DEVICES: ''
+    steps:
+      - name: Check out candidate with history
+        uses: actions/checkout@v6
+        with:
+          ref: 1a07d04f846964330cab3f5beeef40542fda205f
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install one CPU environment
+        shell: bash
+        env:
+          EVIDENCE: ${{ runner.temp }}/lookup-evidence
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE"
+          python -m venv "$RUNNER_TEMP/lookup-venv"
+          source "$RUNNER_TEMP/lookup-venv/bin/activate"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.lookup python -m pip install -e .
+          python -m pip install pytest msgpack quart jsonschema av pillow httpx black ruff
+          python -m pip freeze --all | tee "$EVIDENCE/dependencies-before.txt"
+
+      - name: Prove original red, candidate green, original red
+        shell: bash
+        env:
+          EVIDENCE: ${{ runner.temp }}/lookup-evidence
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/lookup-venv/bin/activate"
+          BASE=68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
+          HEAD=1a07d04f846964330cab3f5beeef40542fda205f
+          TEST=tests/test_dense_lookup_initialization.py
+          cp "$TEST" "$RUNNER_TEMP/lookup-test.py"
+
+          run_arm() {
+            local name="$1"
+            local ref="$2"
+            git checkout --detach "$ref" >/dev/null
+            cp "$RUNNER_TEMP/lookup-test.py" "$TEST"
+            set +e
+            PYTHONPATH="$PWD" python -m pytest "$TEST" -q -rs \
+              --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
+            local rc=$?
+            set -e
+            printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
+            git reset --hard HEAD >/dev/null
+            git clean -fd >/dev/null
+          }
+
+          run_arm original "$BASE"
+          run_arm candidate "$HEAD"
+          run_arm restored "$BASE"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          evidence = Path(os.environ["EVIDENCE"])
+          receipt = {"status": "IN_PROGRESS", "arms": {}}
+          for name in ["original", "candidate", "restored"]:
+              root = ET.parse(evidence / f"{name}.xml").getroot()
+              cases = {}
+              for item in root.iter("testcase"):
+                  key = item.get("name")
+                  assert key not in cases
+                  status = "passed"
+                  detail = ""
+                  for tag in ["error", "failure", "skipped"]:
+                      child = item.find(tag)
+                      if child is not None:
+                          status = tag
+                          detail = child.get("message", "") + "\n" + (child.text or "")
+                          break
+                  cases[key] = {"status": status, "detail": detail}
+              receipt["arms"][name] = {
+                  "exit_code": int((evidence / f"{name}.exit").read_text()),
+                  "cases": cases,
+              }
+
+          original, candidate, restored = [
+              receipt["arms"][name] for name in ["original", "candidate", "restored"]
+          ]
+          assert len(original["cases"]) == len(candidate["cases"]) == len(restored["cases"]) == 29
+          assert original["cases"].keys() == candidate["cases"].keys() == restored["cases"].keys()
+          expected_red = {
+              key
+              for key in original["cases"]
+              if "test_lookup_initialization_warning_adds_type_without_losing_message[" in key
+          }
+          assert len(expected_red) == 16
+          for arm in [original, restored]:
+              assert arm["exit_code"] == 1
+              failed = {k for k, v in arm["cases"].items() if v["status"] in {"failure", "error"}}
+              assert failed == expected_red
+              assert all(
+                  "LOOKUP_DIAGNOSTIC_CLASS_MISSING" in arm["cases"][key]["detail"]
+                  for key in expected_red
+              )
+          assert candidate["exit_code"] == 0
+          assert all(v["status"] == "passed" for v in candidate["cases"].values())
+          receipt["status"] = "DENSE_LOOKUP_DIAGNOSTIC_GATE_PASSED"
+          (evidence / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          print(receipt["status"])
+          PY
+
+      - name: Run focused existing suite and style checks on candidate
+        shell: bash
+        env:
+          EVIDENCE: ${{ runner.temp }}/lookup-evidence
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/lookup-venv/bin/activate"
+          git checkout --detach 1a07d04f846964330cab3f5beeef40542fda205f >/dev/null
+          PYTHONPATH="$PWD" python -m pytest \
+            tests/test_dense_lookup_initialization.py \
+            tests/test_dense_offload_connector.py \
+            -q -rs --junitxml="$EVIDENCE/focused.xml" 2>&1 | tee "$EVIDENCE/focused.log"
+          python -m black --check \
+            atom/kv_transfer/offload/dense/connector.py \
+            tests/test_dense_lookup_initialization.py 2>&1 | tee "$EVIDENCE/black.log"
+          python -m ruff check \
+            atom/kv_transfer/offload/dense/connector.py \
+            tests/test_dense_lookup_initialization.py 2>&1 | tee "$EVIDENCE/ruff.log"
+          git diff --check 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e HEAD | tee "$EVIDENCE/diff-check.log"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
+
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dense-lookup-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lookup-evidence/
+          if-no-files-found: error
+          retention-days: 14
