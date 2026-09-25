@@ -493,7 +493,6 @@ class DenseOffloadScheduler(ChunkedOffloadSchedulerBase):
             minimum=1,
         )
         world = offcfg.lmcache_replica_world_size(config)
-        offcfg.validate_lmcache_lookup_scope(cfg, world)
         meta = offcfg.build_lmcache_metadata(config, cfg, world, 0)
         lookup_client = None
         try:
