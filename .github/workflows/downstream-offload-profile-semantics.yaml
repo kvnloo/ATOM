@@ -105,7 +105,7 @@ jobs:
                           detail = child.get('message', '') + '\n' + (child.text or '')
                           break
                   cases[key] = {'status': status, 'detail': detail}
-              rc = int(evidence / f'{name}.exit'.read_text())
+              rc = int((evidence / f'{name}.exit').read_text())
               receipt['arms'][name] = {'exit_code': rc, 'cases': cases}
           a, b, c = [receipt['arms'][name] for name in ['original', 'candidate', 'restored']]
           assert len(a['cases']) == len(b['cases']) == len(c['cases']) == 7
