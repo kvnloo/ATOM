@@ -1,0 +1,124 @@
+name: Downstream LMCache pin preflight
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-lmcache-pin-preflight.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-cli:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check out the isolated two-file candidate
+        uses: actions/checkout@v6
+        with:
+          ref: 9cc72463399bca340273ad4a7a3fc158de78ab62
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install test and style tools only
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          python -m pip install 'pytest==9.0.2' black ruff 2>&1 | tee evidence/install.log
+          python -m pip freeze --all > evidence/dependencies-before.txt
+
+      - name: Compare original, candidate and restored CLI behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' 2>&1 | tee evidence/comparison.log
+          import hashlib
+          import json
+          from pathlib import Path
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          base = '9cb1dffaf8fc3ca5892f337938b3120aa8363bd3'
+          head = '9cc72463399bca340273ad4a7a3fc158de78ab62'
+          script = Path('.github/scripts/bump_lmcache_wheel_pin.py')
+          test = Path('tests/test_bump_lmcache_wheel_pin.py')
+          out = Path('evidence')
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == head
+          paths = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
+          assert set(paths) == {str(script), str(test)}
+          candidate = script.read_bytes()
+          original = subprocess.check_output(['git', 'show', f'{base}:{script}'])
+          assert hashlib.sha1(f'blob {len(original)}\0'.encode() + original).hexdigest() == '7c3661444f5e1f4844223c4c1fcc0e87231b6efa'
+          report = {
+              'status': 'IN_PROGRESS', 'base': base, 'candidate': head,
+              'python': sys.version, 'scope': 'standalone real CLI subprocess tests',
+              'full_atom_suite': 'NOT_RUN', 'docker_build': 'NOT_RUN', 'gpu': 'NOT_RUN',
+              'test_sha256': hashlib.sha256(test.read_bytes()).hexdigest(),
+              'source_sha256': hashlib.sha256(candidate).hexdigest(), 'arms': {},
+          }
+          try:
+              for name, source in [('original', original), ('candidate', candidate), ('restored', original)]:
+                  script.write_bytes(source)
+                  command = [sys.executable, '-m', 'pytest', '--noconftest', str(test), '-q', f'--junitxml={out / (name + ".xml")}']
+                  with (out / (name + '.log')).open('w') as stream:
+                      result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, timeout=120, check=False)
+                  root = ET.parse(out / (name + '.xml')).getroot()
+                  cases = {}
+                  for case in root.iter('testcase'):
+                      key = case.get('name')
+                      assert key not in cases
+                      assert case.find('error') is None and case.find('skipped') is None
+                      failure = case.find('failure')
+                      cases[key] = 'passed' if failure is None else 'failed'
+                      if failure is not None:
+                          assert '== before' in (failure.text or '')
+                  assert len(cases) == 9
+                  expected_red = {key for key in cases if key.startswith(('test_later_layout_error_', 'test_missing_later_file_'))}
+                  assert len(expected_red) == 5
+                  assert result.returncode == (0 if name == 'candidate' else 1)
+                  assert {key for key, status in cases.items() if status == 'failed'} == (set() if name == 'candidate' else expected_red)
+                  report['arms'][name] = {'command': command, 'exit_code': result.returncode, 'cases': cases}
+                  print(name, result.returncode, cases)
+              assert report['arms']['original']['cases'].keys() == report['arms']['candidate']['cases'].keys() == report['arms']['restored']['cases'].keys()
+              report['status'] = 'FOCUSED_CLI_GATE_PASSED'
+          except Exception:
+              report['status'] = 'FOCUSED_CLI_GATE_NOT_MET'
+              raise
+          finally:
+              script.write_bytes(candidate)
+              (out / 'receipt.json').write_text(json.dumps(report, indent=2) + '\n')
+          subprocess.run(['git', 'diff', '--exit-code', '--', str(script), str(test)], check=True)
+          print(report['status'])
+          PY
+
+      - name: Check style and diff scope
+        run: |
+          set -euo pipefail
+          {
+            python -m black --check .github/scripts/bump_lmcache_wheel_pin.py tests/test_bump_lmcache_wheel_pin.py
+            python -m ruff check .github/scripts/bump_lmcache_wheel_pin.py tests/test_bump_lmcache_wheel_pin.py
+            git diff --check 9cb1dffaf8fc3ca5892f337938b3120aa8363bd3 HEAD
+            git diff --stat 9cb1dffaf8fc3ca5892f337938b3120aa8363bd3 HEAD
+            python -m pip freeze --all > evidence/dependencies-after.txt
+            cmp evidence/dependencies-before.txt evidence/dependencies-after.txt
+          } 2>&1 | tee evidence/style.log
+
+      - name: Retain results, including failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: lmcache-pin-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
