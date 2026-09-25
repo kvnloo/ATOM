@@ -460,6 +460,26 @@ def lmcache_replica_world_size(config) -> int:
     return max(1, pp_size * tp_size)
 
 
+
+def validate_lmcache_lookup_scope(cfg: Any, world_size: int) -> None:
+    """Reject lookup-server worker ids outside this replica-local world."""
+
+    world_size = _strict_integer("LMCache world size", world_size, minimum=1)
+    worker_ids = getattr(cfg, "lookup_server_worker_ids", None)
+    if not worker_ids:
+        return
+    normalized = [
+        _strict_integer(f"LMCache lookup server worker id[{index}]", worker_id)
+        for index, worker_id in enumerate(worker_ids)
+    ]
+    invalid = [worker_id for worker_id in normalized if worker_id >= world_size]
+    if invalid:
+        raise ValueError(
+            "LMCache lookup_server_worker_ids must be within the replica-local "
+            f"world [0, {world_size}); got {normalized}"
+        )
+
+
 def scale_cpu_size_for_pp(cfg, config) -> None:
     """Split the CPU offload budget across PP stages by layer count.
 
