@@ -397,7 +397,7 @@ def test_lmcache_metadata_rejects_lookup_scope_outside_replica_world(
         ValueError,
         match=(
             rf"lookup_server_worker_ids must be within the replica-local world "
-            rf"\\[0, {world_size}\\)"
+            rf"\[0, {world_size}\)"
         ),
     ):
         offcfg.build_lmcache_metadata(_config(), cfg, world_size, 0)
