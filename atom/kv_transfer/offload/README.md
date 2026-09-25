@@ -1142,7 +1142,8 @@ a durable backend flush. PAGE transfer diagnostics remain opt-in with
 `OFFLOAD_PROFILE=1` via `[OFFLOAD-SAVE-PROF]` and `[OFFLOAD-LOAD-PROF]`.
 These records report payload/group counts, whether batched IDs and asynchronous
 host copies actually ran, and outer store/retrieve wall time. Connector phase
-and GPU-event timings are not collected.
+and GPU-event timings are not collected; their profile fields use `-1.00` to
+mean unavailable rather than reporting an unmeasured zero.
 
 Common diagnostics:
 
