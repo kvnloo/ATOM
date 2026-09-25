@@ -202,6 +202,19 @@ class MoRIIOConnector(KVConnectorBase):
         ``[k_chunk0, k_chunk1, ..., v_chunk0, v_chunk1, ...]``.
         ``self.num_k_chunks`` marks the K/V boundary.
         """
+        unsupported_index_layers = [
+            layer_name
+            for layer_name, kv_cache in kv_caches.items()
+            if getattr(kv_cache, "index_cache", None) is not None
+            or getattr(kv_cache, "index_scale", None) is not None
+        ]
+        if unsupported_index_layers:
+            raise NotImplementedError(
+                "moriio does not transfer DSA index-cache PAGE state; "
+                "use a region-aware connector such as mooncake. "
+                f"Unsupported layers: {unsupported_index_layers[:4]}"
+            )
+
         self.kv_caches = kv_caches
         cache_tensor = None
 
