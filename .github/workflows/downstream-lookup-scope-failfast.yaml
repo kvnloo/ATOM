@@ -24,7 +24,7 @@ jobs:
       - name: Check out candidate with history
         uses: actions/checkout@v6
         with:
-          ref: 8396f852c52b1ed899e1c92ede1e8a779f190ff6
+          ref: a53e9b8e7322661dbda999fc02bd5fc517b6c6b8
           fetch-depth: 0
           persist-credentials: false
 
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/scope-venv/bin/activate"
           BASE=68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
-          HEAD=8396f852c52b1ed899e1c92ede1e8a779f190ff6
+          HEAD=a53e9b8e7322661dbda999fc02bd5fc517b6c6b8
           TEST=tests/test_dense_lookup_scope.py
           cp "$TEST" "$RUNNER_TEMP/scope-test.py"
 
@@ -139,7 +139,7 @@ jobs:
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/scope-venv/bin/activate"
-          git checkout --detach 8396f852c52b1ed899e1c92ede1e8a779f190ff6 >/dev/null
+          git checkout --detach a53e9b8e7322661dbda999fc02bd5fc517b6c6b8 >/dev/null
           PYTHONPATH="$PWD" python -m pytest \
             tests/test_dense_lookup_scope.py \
             tests/test_dense_offload_connector.py \
