@@ -1,0 +1,95 @@
+name: Downstream pin test fixture integration
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths: [.github/workflows/downstream-pin-fixture-integration.yaml]
+
+permissions:
+  contents: read
+
+jobs:
+  shared-fixtures:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      CUDA_VISIBLE_DEVICES: ''
+      ROCR_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 9cc72463399bca340273ad4a7a3fc158de78ab62
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install the pinned checkout's documented CPU test dependencies
+        timeout-minutes: 18
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          {
+            python -m venv "$RUNNER_TEMP/atom-fixture-env"
+            source "$RUNNER_TEMP/atom-fixture-env/bin/activate"
+            python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+            SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.ci python -m pip install -e .
+            python -m pip install pytest msgpack quart jsonschema av pillow httpx
+            python -m pip freeze --all > evidence/dependencies-before.txt
+          } 2>&1 | tee evidence/install.log
+      - name: Run the same nine cases with normal conftest loading
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/atom-fixture-env/bin/activate"
+          test "$(git rev-parse HEAD)" = 9cc72463399bca340273ad4a7a3fc158de78ab62
+          python -m pytest --trace-config tests/test_bump_lmcache_wheel_pin.py \
+            -q -rs --junitxml=evidence/shared-fixtures.xml \
+            2>&1 | tee evidence/pytest.log
+          python -m pip freeze --all > evidence/dependencies-after.txt
+          cmp evidence/dependencies-before.txt evidence/dependencies-after.txt
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          import xml.etree.ElementTree as ET
+          root = Path.cwd()
+          log = (root / 'evidence/pytest.log').read_text()
+          expected_origin = str(root / 'tests/conftest.py')
+          if expected_origin not in log:
+              raise RuntimeError('Shared conftest registration not demonstrated')
+          cases = list(ET.parse(root / 'evidence/shared-fixtures.xml').getroot().iter('testcase'))
+          if len(cases) != 9:
+              raise RuntimeError('Unexpected case count')
+          if any(any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped')) for case in cases):
+              raise RuntimeError('All nine cases must actually pass')
+          files = ['tests/conftest.py', 'tests/test_bump_lmcache_wheel_pin.py', '.github/scripts/bump_lmcache_wheel_pin.py']
+          receipt = {
+              'status': 'SHARED_FIXTURE_GATE_PASSED',
+              'candidate': '9cc72463399bca340273ad4a7a3fc158de78ab62',
+              'run_id': os.environ['GITHUB_RUN_ID'], 'python': sys.version,
+              'passed': 9, 'skipped': 0, 'shared_conftest_loaded': True,
+              'cases': [case.get('name') for case in cases],
+              'sha256': {path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in files},
+              'full_native_suite': 'NOT_RUN', 'gpu': 'NOT_RUN',
+              'limits': 'Fixture compatibility for the exact candidate, not upstream CI approval or testing merged main.'
+          }
+          (root / 'evidence/receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print(json.dumps(receipt))
+          PY
+          git diff --exit-code -- .github/scripts/bump_lmcache_wheel_pin.py tests/test_bump_lmcache_wheel_pin.py tests/conftest.py
+      - name: Retain logs even when setup or fixtures fail
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pin-shared-fixtures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
