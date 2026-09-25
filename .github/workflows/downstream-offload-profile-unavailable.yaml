@@ -1,0 +1,166 @@
+name: Downstream offload profile unavailable timings
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-offload-profile-unavailable.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-profile-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      BASE_SHA: 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
+      CANDIDATE_SHA: ad993aa2a8d4d3f3751c70e23ff0fd2c51e8d51e
+    steps:
+      - name: Check out downstream harness
+        uses: actions/checkout@v6
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Check out base, candidate and restored arms
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --no-checkout "$GITHUB_SERVER_URL/kvnloo/ATOM.git" source
+          for arm in base candidate restored; do
+            git -C source worktree add --detach "../$arm" "$BASE_SHA"
+          done
+          git -C candidate checkout --detach "$CANDIDATE_SHA"
+          git -C restored checkout --detach "$CANDIDATE_SHA"
+          for test in tests/test_dense_offload_connector.py tests/test_lmcache_offload_v4_page_slot.py; do
+            cp "candidate/$test" "base/$test"
+          done
+          for file in atom/kv_transfer/offload/dense/connector.py atom/kv_transfer/offload/hybrid/dsv4/connector.py atom/kv_transfer/offload/README.md; do
+            git -C restored checkout "$BASE_SHA" -- "$file"
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install one CPU environment
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/profile-venv"
+          source "$RUNNER_TEMP/profile-venv/bin/activate"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.profile python -m pip install -e ./candidate
+          python -m pip install pytest msgpack quart jsonschema av pillow httpx black ruff
+          mkdir evidence
+          python -m pip freeze --all > evidence/dependencies-before.txt
+
+      - name: Run original, candidate and restored profile cases
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/profile-venv/bin/activate"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import xml.etree.ElementTree as ET
+
+          roots = {name: Path(name).resolve() for name in ("base", "candidate", "restored")}
+          out = Path("evidence").resolve()
+          selections = [
+              "tests/test_dense_offload_connector.py",
+              "tests/test_lmcache_offload_v4_page_slot.py",
+              "-k", "profile_distinguishes_unavailable_phase_timings",
+          ]
+          receipt = {"status": "IN_PROGRESS", "arms": {}}
+          for name, root in roots.items():
+              origin = subprocess.check_output(
+                  [sys.executable, "-c",
+                   "from pathlib import Path; "
+                   "from atom.kv_transfer.offload.dense import connector; "
+                   "print(Path(connector.__file__).resolve())"],
+                  cwd=root, env={**os.environ, "PYTHONPATH": str(root)}, text=True,
+              ).strip()
+              if Path(origin) != root / "atom/kv_transfer/offload/dense/connector.py":
+                  raise RuntimeError(f"{name}: wrong import origin {origin}")
+              report = out / f"{name}.xml"
+              log = out / f"{name}.log"
+              command = [sys.executable, "-m", "pytest", *selections, "-q", "-rs",
+                         f"--junitxml={report}"]
+              with log.open("w") as stream:
+                  result = subprocess.run(command, cwd=root,
+                      env={**os.environ, "PYTHONPATH": str(root)},
+                      stdout=stream, stderr=subprocess.STDOUT, timeout=240, check=False)
+              cases = []
+              for case in ET.parse(report).getroot().iter("testcase"):
+                  status, detail = "passed", ""
+                  for tag in ("error", "failure", "skipped"):
+                      node = case.find(tag)
+                      if node is not None:
+                          status = tag
+                          detail = (node.get("message") or "") + "\n" + (node.text or "")
+                          break
+                  cases.append({"id": case.get("classname","") + "::" + case.get("name",""),
+                                "name": case.get("name"), "status": status, "detail": detail})
+              if len(cases) != 12:
+                  raise RuntimeError(f"{name}: expected 12 cases, got {len(cases)}")
+              failed = [c for c in cases if c["status"] == "failure"]
+              if name == "candidate":
+                  if result.returncode != 0 or any(c["status"] != "passed" for c in cases):
+                      raise RuntimeError("candidate did not pass all profile cases")
+              else:
+                  if result.returncode != 1 or len(failed) != 4:
+                      raise RuntimeError(f"{name}: expected four causal failures")
+                  if not all("[unavailable-" in c["name"] and "pack_ms=-1.00" in c["detail"]
+                             for c in failed):
+                      raise RuntimeError(f"{name}: failures were not the unavailable-timing assertion")
+                  if any(c["status"] != "passed" for c in cases if c not in failed):
+                      raise RuntimeError(f"{name}: unexpected non-pass outside causal failures")
+              receipt["arms"][name] = {
+                  "exit_code": result.returncode,
+                  "passed": sum(c["status"] == "passed" for c in cases),
+                  "failed": len(failed),
+                  "cases": cases,
+              }
+          if set(receipt["arms"]["base"]["cases"][i]["id"] for i in range(12)) !=              set(receipt["arms"]["candidate"]["cases"][i]["id"] for i in range(12)):
+              raise RuntimeError("test identities differ between arms")
+          receipt["status"] = "PROFILE_CONTRACT_RED_GREEN_RED_PASSED"
+          (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          print(receipt["status"])
+          PY
+
+      - name: Run focused candidate suites and style checks
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/profile-venv/bin/activate"
+          (
+            cd candidate
+            python -m pytest -q -rs               tests/test_dense_offload_connector.py               tests/test_lmcache_offload_v4_page_slot.py               tests/test_offload_transfer_instrumentation.py               --junitxml="$GITHUB_WORKSPACE/evidence/candidate-focused.xml"
+            python -m black --check               atom/kv_transfer/offload/dense/connector.py               atom/kv_transfer/offload/hybrid/dsv4/connector.py               tests/test_dense_offload_connector.py               tests/test_lmcache_offload_v4_page_slot.py
+            python -m ruff check               atom/kv_transfer/offload/dense/connector.py               atom/kv_transfer/offload/hybrid/dsv4/connector.py               tests/test_dense_offload_connector.py               tests/test_lmcache_offload_v4_page_slot.py
+            git diff --check "$BASE_SHA" HEAD
+          ) 2>&1 | tee evidence/focused-and-style.log
+          python -m pip freeze --all > evidence/dependencies-after.txt
+          cmp evidence/dependencies-before.txt evidence/dependencies-after.txt
+
+      - name: Retain all evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: offload-profile-unavailable-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
