@@ -353,3 +353,72 @@ def test_scheduler_and_worker_metadata_share_page_namespace(monkeypatch):
     assert scheduler.model_name == worker.model_name
     assert scheduler.worker_id == 0
     assert worker.worker_id == 3
+
+
+def _install_lookup_scope_metadata_modules(monkeypatch):
+    @dataclass
+    class _Metadata:
+        model_name: str
+        world_size: int
+        local_world_size: int
+        worker_id: int
+        local_worker_id: int
+        kv_dtype: object
+        kv_shape: tuple
+        use_mla: bool
+        chunk_size: int
+        engine_id: str
+
+    aiter_module = types.ModuleType("aiter")
+    aiter_module.dtypes = SimpleNamespace(d_dtypes={"fp8": "torch-fp8"})
+    metadata_module = types.ModuleType("lmcache.v1.metadata")
+    metadata_module.LMCacheMetadata = _Metadata
+    monkeypatch.setitem(sys.modules, "aiter", aiter_module)
+    monkeypatch.setitem(sys.modules, "lmcache", types.ModuleType("lmcache"))
+    monkeypatch.setitem(sys.modules, "lmcache.v1", types.ModuleType("lmcache.v1"))
+    monkeypatch.setitem(sys.modules, "lmcache.v1.metadata", metadata_module)
+    return _Metadata
+
+
+@pytest.mark.parametrize(
+    ("world_size", "worker_ids"),
+    [(1, [1]), (1, [0, 1]), (4, [4])],
+)
+def test_lmcache_metadata_rejects_lookup_scope_outside_replica_world(
+    monkeypatch,
+    world_size,
+    worker_ids,
+):
+    _install_lookup_scope_metadata_modules(monkeypatch)
+    cfg = _lmcache_config()
+    cfg.lookup_server_worker_ids = worker_ids
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            rf"lookup_server_worker_ids must be within the replica-local world "
+            rf"\[0, {world_size}\)"
+        ),
+    ):
+        offcfg.build_lmcache_metadata(_config(), cfg, world_size, 0)
+
+
+@pytest.mark.parametrize(
+    ("world_size", "worker_ids"),
+    [(1, []), (1, [0]), (4, [0, 3])],
+)
+def test_lmcache_metadata_accepts_lookup_scope_within_replica_world(
+    monkeypatch,
+    world_size,
+    worker_ids,
+):
+    metadata_type = _install_lookup_scope_metadata_modules(monkeypatch)
+    cfg = _lmcache_config()
+    cfg.lookup_server_worker_ids = worker_ids
+
+    metadata = offcfg.build_lmcache_metadata(_config(), cfg, world_size, 0)
+
+    assert isinstance(metadata, metadata_type)
+    assert metadata.world_size == world_size
+    assert metadata.worker_id == 0
+
