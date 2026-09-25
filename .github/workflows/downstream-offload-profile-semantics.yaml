@@ -24,7 +24,7 @@ jobs:
       - name: Check out candidate with history
         uses: actions/checkout@v6
         with:
-          ref: fc0aa76b45b31461b64108e65cb61bff1b3c5381
+          ref: ef030dc049244f9dc8dab00c5504229a075567f7
           fetch-depth: 0
           persist-credentials: false
 
@@ -76,7 +76,7 @@ jobs:
           }
 
           run_arm original "$BASE"
-          run_arm candidate fc0aa76b45b31461b64108e65cb61bff1b3c5381
+          run_arm candidate ef030dc049244f9dc8dab00c5504229a075567f7
           run_arm restored "$BASE"
 
           python - <<'PY'
@@ -134,7 +134,7 @@ jobs:
         run: |
           set -euo pipefail
           source "$RUNNER_TEMP/profile-venv/bin/activate"
-          git checkout --detach fc0aa76b45b31461b64108e65cb61bff1b3c5381 >/dev/null
+          git checkout --detach ef030dc049244f9dc8dab00c5504229a075567f7 >/dev/null
           PYTHONPATH="$PWD" python -m pytest \
             tests/test_offload_profile_logging.py \
             tests/test_offload_transfer_instrumentation.py \
