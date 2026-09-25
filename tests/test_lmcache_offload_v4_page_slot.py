@@ -2606,3 +2606,75 @@ def test_restore_sync_failure_quarantines_batch_staging():
     assert connector._slot_admission.released == []
     assert connector._slot_admission.quarantined == [0]
     assert connector._slot_admission.num_free == 0
+
+_DSV4_PHASE_PROFILE_FIELDS = (
+    "pack_ms",
+    "copy_ms",
+    "sync_ms",
+    "transfer_ms",
+    "effective_gbps",
+)
+
+
+@pytest.mark.parametrize("direction", ["load", "save"])
+@pytest.mark.parametrize(
+    ("phase_stats", "expected"),
+    [
+        ({}, "-1.00"),
+        ({field: 0.0 for field in _DSV4_PHASE_PROFILE_FIELDS}, "0.00"),
+        ({field: 1.25 for field in _DSV4_PHASE_PROFILE_FIELDS}, "1.25"),
+    ],
+    ids=["unavailable", "measured-zero", "measured-value"],
+)
+def test_dsv4_profile_distinguishes_unavailable_phase_timings(
+    monkeypatch,
+    caplog,
+    direction,
+    phase_stats,
+    expected,
+):
+    class ProfileGPUConnector:
+        def reset_transfer_stats(self):
+            pass
+
+        def last_transfer_stats(self):
+            return {
+                "stats_available": 1,
+                "counts_available": 1,
+                "total_bytes": 64,
+                **phase_stats,
+            }
+
+    order: list[str] = []
+    connector = _worker(order)
+    connector._engine.gpu_connector = ProfileGPUConnector()
+    monkeypatch.setenv("OFFLOAD_PROFILE", "1")
+    request = LMCacheReqMeta(
+        req_id=902,
+        token_ids=list(range(8)),
+        block_ids=[10, 11],
+        load_spec=(
+            LoadSpec(hbm_cached_tokens=0, lmcache_cached_tokens=8, can_load=True)
+            if direction == "load"
+            else None
+        ),
+        save_spec=SaveSpec(skip_leading_tokens=0) if direction == "save" else None,
+        slot_load_spec=None,
+        slot_save_spec=None,
+    )
+
+    caplog.clear()
+    with caplog.at_level("INFO", logger="atom"):
+        if direction == "load":
+            assert connector._load_page(request) is True
+        else:
+            connector._do_save_req(request, None, None)
+    label = "[OFFLOAD-LOAD-PROF]" if direction == "load" else "[OFFLOAD-SAVE-PROF]"
+    lines = [record.getMessage() for record in caplog.records if label in record.getMessage()]
+    assert len(lines) == 1
+    for field in _DSV4_PHASE_PROFILE_FIELDS:
+        assert f"{field}={expected}" in lines[0]
+    assert "total_bytes=64" in lines[0]
+    assert ("retrieve_ms=" if direction == "load" else "store_ms=") in lines[0]
+    assert "total_ms=" in lines[0]
+
