@@ -627,6 +627,7 @@ def build_lmcache_metadata(config, cfg, world_size: int, worker_id: int):
     )
     chunk_size = _strict_integer("LMCache chunk size", cfg.chunk_size, minimum=1)
     world_size = _strict_integer("LMCache world size", world_size, minimum=1)
+    validate_lmcache_lookup_scope(cfg, world_size)
     worker_id = _strict_integer("LMCache worker id", worker_id)
     if worker_id >= world_size:
         raise ValueError("LMCache worker id must be within the world")
