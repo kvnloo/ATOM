@@ -460,7 +460,6 @@ def lmcache_replica_world_size(config) -> int:
     return max(1, pp_size * tp_size)
 
 
-
 def validate_lmcache_lookup_scope(cfg: Any, world_size: int) -> None:
     """Reject lookup-server worker ids outside this replica-local world."""
 
