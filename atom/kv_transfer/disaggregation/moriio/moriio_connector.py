@@ -202,6 +202,54 @@ class MoRIIOConnector(KVConnectorBase):
         ``[k_chunk0, k_chunk1, ..., v_chunk0, v_chunk1, ...]``.
         ``self.num_k_chunks`` marks the K/V boundary.
         """
+        # The active read path has one global blocks_per_chunk, one K/V
+        # chunk split, and derives every layer's transfer size from the first
+        # layer. Reject heterogeneous geometry before registering any memory
+        # instead of partially copying a larger/different layer with valid
+        # block IDs.
+        expected_geometry = None
+        expected_layer = None
+        for layer_name, kv_cache in kv_caches.items():
+            k_cache = kv_cache.k_cache
+            v_cache = kv_cache.v_cache
+            is_mla = v_cache is None
+            block_size_dim0 = self.kv_cache_block_size if is_mla else 1
+            if int(k_cache.shape[0]) % block_size_dim0:
+                raise ValueError(
+                    f"MoRIIO layer {layer_name} K cache leading dim "
+                    f"{int(k_cache.shape[0])} is not divisible by "
+                    f"{block_size_dim0}"
+                )
+            num_layer_blocks = int(k_cache.shape[0]) // block_size_dim0
+            k_block_bytes = (
+                block_size_dim0 * int(k_cache.stride(0)) * k_cache.element_size()
+            )
+            if is_mla:
+                v_block_bytes = None
+            else:
+                if int(v_cache.shape[0]) != num_layer_blocks:
+                    raise ValueError(
+                        f"MoRIIO layer {layer_name} K/V block counts differ: "
+                        f"{num_layer_blocks} != {int(v_cache.shape[0])}"
+                    )
+                v_block_bytes = int(v_cache.stride(0)) * v_cache.element_size()
+                if v_block_bytes != k_block_bytes:
+                    raise ValueError(
+                        f"MoRIIO layer {layer_name} K/V bytes per block differ: "
+                        f"{k_block_bytes} != {v_block_bytes}"
+                    )
+
+            geometry = (is_mla, num_layer_blocks, k_block_bytes)
+            if expected_geometry is None:
+                expected_geometry = geometry
+                expected_layer = layer_name
+            elif geometry != expected_geometry:
+                raise ValueError(
+                    "MoRIIO requires homogeneous KV block geometry across layers; "
+                    f"{expected_layer}={expected_geometry}, "
+                    f"{layer_name}={geometry}"
+                )
+
         self.kv_caches = kv_caches
         cache_tensor = None
 
