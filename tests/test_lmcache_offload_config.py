@@ -393,13 +393,11 @@ def test_lmcache_metadata_rejects_lookup_scope_outside_replica_world(
     cfg = _lmcache_config()
     cfg.lookup_server_worker_ids = worker_ids
 
-    with pytest.raises(
-        ValueError,
-        match=(
-            rf"lookup_server_worker_ids must be within the replica-local world "
-            rf"\[0, {world_size}\)"
-        ),
-    ):
+    expected_error = (
+        "lookup_server_worker_ids must be within the replica-local world "
+        rf"\[0, {world_size}\)"
+    )
+    with pytest.raises(ValueError, match=expected_error):
         offcfg.build_lmcache_metadata(_config(), cfg, world_size, 0)
 
 
