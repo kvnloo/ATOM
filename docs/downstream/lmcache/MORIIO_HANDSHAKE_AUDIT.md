@@ -41,7 +41,7 @@ The test uses a synchronous fake executor and does not import or emulate MoRI RD
 
 [Queued evidence run](https://github.com/kvnloo/ATOM/actions/runs/36209914696). No result is claimed while queued.
 
-## L2 — separate batching race found, not mixed into L1
+## L2 — first-contact batch drain candidate
 
 There is another independent source issue in `start_load_kv()`:
 
@@ -54,7 +54,11 @@ So two same-step requests that both require a first-time handshake can leave a s
 
 This should be a separate candidate because fixing it requires explicit accounting for all handshake-waiting requests, and it must compose with L1's success/failure terminals. Do not hide it inside the failure patch.
 
-A useful next deterministic test should hold two handshake futures incomplete until both requests have been admitted, complete both, and require two reads or two explicit failures—never one read plus a stranded queue entry.
+The downstream candidate `fix/moriio-handshake-batch-drain` @ `98ffcd216fdf0f98da3d3ba1a39e5ef982333609` keeps this separate from L1. It replaces the single boolean with an exact count of handshakes started by the current batch and drains one callback queue entry for each before returning. It does **not** change failure semantics; the original callback still queues a request even when its aggregate future fails, so L1 remains the independent fix for false-ready failure.
+
+Deterministic CPU coverage holds the first handshake task behind a barrier until both same-engine requests have entered `start_load_kv()`. On current main, both handshake groups are started but the method consumes only the first ready request and returns, leaving the second queue entry stranded. The candidate must issue both reads and leave the queue empty. Single-request and already-known-peer cases are controls.
+
+[Red/green/red run](https://github.com/kvnloo/ATOM/actions/runs/36211620871) is the intended evidence surface once assigned a runner; queued is not pass.
 
 ## Interaction with partial peer state
 
