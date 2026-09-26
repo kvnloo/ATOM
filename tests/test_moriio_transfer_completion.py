@@ -28,7 +28,19 @@ class _Wrapper:
         self.notifications.append((transfer_id, host, port))
 
 
+def _install_import_stubs(monkeypatch) -> None:
+    triton = ModuleType("triton")
+    triton.jit = lambda fn: fn
+    triton.cdiv = lambda x, y: (x + y - 1) // y
+    triton.next_power_of_2 = lambda x: 1 << (max(1, x) - 1).bit_length()
+    triton_language = ModuleType("triton.language")
+    triton.language = triton_language
+    monkeypatch.setitem(sys.modules, "triton", triton)
+    monkeypatch.setitem(sys.modules, "triton.language", triton_language)
+
+
 def _connector(monkeypatch, statuses):
+    _install_import_stubs(monkeypatch)
     # moriio_connector needs only these AITER rank helpers at import time.
     # The method under test never calls them or creates an RDMA engine.
     aiter = ModuleType("aiter")
