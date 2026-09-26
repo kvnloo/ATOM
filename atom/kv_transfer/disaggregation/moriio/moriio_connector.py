@@ -308,8 +308,7 @@ class MoRIIOConnector(KVConnectorBase):
 
         self.request_id_to_transfer_id = metadata.request_id_to_transfer_id
 
-        remote_engine_id: str | None = None
-        need_handshake = False
+        pending_handshakes = 0
 
         for req_id, meta in metadata.reqs_to_recv.items():
             remote_engine_id = f"{meta.remote_host}:{meta.remote_handshake_port}"
@@ -322,26 +321,16 @@ class MoRIIOConnector(KVConnectorBase):
                         self._initiate_background_handshake(
                             req_id, remote_engine_id, meta
                         )
-                        need_handshake = True
+                        pending_handshakes += 1
                         continue
 
             self._issue_read_for_req(req_id, meta)
 
-        # If a handshake was needed, spin until it completes then read.
-        while need_handshake:
-            if (
-                self._ready_requests.empty()
-                and remote_engine_id not in self.load_ready_flag
-            ):
-                continue
-            elif (
-                not self._ready_requests.empty()
-                and remote_engine_id in self.load_ready_flag
-            ):
-                self._issue_read_for_req(*self._ready_requests.get_nowait())
-                break
-            else:
-                break
+        # Every handshake started above queues exactly one request when its
+        # aggregate future completes. Drain all of them before returning so a
+        # same-step batch cannot strand all but the first ready request.
+        for _ in range(pending_handshakes):
+            self._issue_read_for_req(*self._ready_requests.get())
 
     def _issue_read_for_req(self, req_id: str, meta: ReqMeta) -> None:
         """Issue RDMA reads for a single request."""
