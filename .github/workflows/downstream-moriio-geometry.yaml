@@ -65,11 +65,10 @@ jobs:
             git checkout --detach "$ref" >/dev/null
             cp "$RUNNER_TEMP/moriio-geometry-test.py" "$TEST"
             set +e
-            PYTHONPATH="$PWD" python -m pytest "$TEST" -q -rs               --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
+            PYTHONPATH="$PWD" python -m pytest "$TEST" -q -rs --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
             local rc=$?
             set -e
-            printf '%s
-' "$rc" >"$EVIDENCE/${name}.exit"
+            printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
             git reset --hard HEAD >/dev/null
             git clean -fd >/dev/null
           }
@@ -97,8 +96,7 @@ jobs:
                       node = case.find(tag)
                       if node is not None:
                           status = tag
-                          detail = (node.get("message") or "") + "
-" + (node.text or "")
+                          detail = (node.get("message") or "") + chr(10) + (node.text or "")
                           break
                   cases[key] = {"status": status, "detail": detail}
               receipt["arms"][name] = {
@@ -137,8 +135,7 @@ jobs:
           assert candidate["exit_code"] == 0
           assert all(result["status"] == "passed" for result in candidate["cases"].values())
           receipt["status"] = "MORIIO_GEOMETRY_RED_GREEN_RED_PASSED"
-          (evidence / "receipt.json").write_text(json.dumps(receipt, indent=2) + "
-")
+          (evidence / "receipt.json").write_text(json.dumps(receipt, indent=2) + chr(10))
           print(receipt["status"])
           PY
 
@@ -151,9 +148,9 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/moriio-geometry-venv/bin/activate"
           git checkout --detach "$CANDIDATE_SHA" >/dev/null
-          PYTHONPATH="$PWD" python -m pytest tests/test_moriio_geometry_contract.py -q -rs             --junitxml="$EVIDENCE/focused.xml" 2>&1 | tee "$EVIDENCE/focused.log"
-          python -m black --check             atom/kv_transfer/disaggregation/moriio/moriio_connector.py             tests/test_moriio_geometry_contract.py 2>&1 | tee "$EVIDENCE/black.log"
-          python -m ruff check             atom/kv_transfer/disaggregation/moriio/moriio_connector.py             tests/test_moriio_geometry_contract.py 2>&1 | tee "$EVIDENCE/ruff.log"
+          PYTHONPATH="$PWD" python -m pytest tests/test_moriio_geometry_contract.py -q -rs --junitxml="$EVIDENCE/focused.xml" 2>&1 | tee "$EVIDENCE/focused.log"
+          python -m black --check atom/kv_transfer/disaggregation/moriio/moriio_connector.py tests/test_moriio_geometry_contract.py 2>&1 | tee "$EVIDENCE/black.log"
+          python -m ruff check atom/kv_transfer/disaggregation/moriio/moriio_connector.py tests/test_moriio_geometry_contract.py 2>&1 | tee "$EVIDENCE/ruff.log"
           git diff --check "$BASE_SHA" HEAD | tee "$EVIDENCE/diff-check.log"
           python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
           cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
