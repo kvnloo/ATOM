@@ -19,7 +19,7 @@ jobs:
       HF_HUB_OFFLINE: '1'
       TRANSFORMERS_OFFLINE: '1'
       BASE_SHA: 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
-      CANDIDATE_SHA: d6882c2daf06e997539d05151697fcd59b049875
+      CANDIDATE_SHA: 8b744042a3791f38ba92d9d78695be7068a48499
     steps:
       - name: Check out candidate with history
         uses: actions/checkout@v6
