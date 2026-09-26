@@ -39,6 +39,7 @@ from atom.kv_transfer.disaggregation.moriio.moriio_engine import MoRIIOWrapper
 from atom.kv_transfer.disaggregation.types import (
     ConnectorMetadata,
     EngineId,
+    KVConnectorOutput,
     ReqId,
     ReqMeta,
     TransferId,
@@ -180,6 +181,10 @@ class MoRIIOConnector(KVConnectorBase):
 
         # Completed send-side transfers (populated by handshake listener)
         self.done_sending: set[int] = set()
+        # Failed consumer receives whose background handshake could not establish
+        # every required remote DP peer. Reported through KVConnectorOutput so
+        # the scheduler can leave WAITING_FOR_REMOTE_KVS instead of hanging.
+        self.failed_recving: set[ReqId] = set()
 
         # Transfer ID mapping (worker side)
         self.request_id_to_transfer_id: dict[ReqId, TransferId] = {}
@@ -780,7 +785,23 @@ class MoRIIOConnector(KVConnectorBase):
         tp_size = int(meta.tp_size)
         remote_dp_size = int(meta.remote_dp_size)
 
-        def _on_all_done(_f: Future[Any], entry=(req_id, meta)):
+        def _on_all_done(f: Future[Any], entry=(req_id, meta)):
+            try:
+                f.result()
+            except Exception:
+                # At least one required remote DP peer could not be established.
+                # Mark the engine as terminal-for-this-attempt so start_load_kv's
+                # bounded handoff loop can exit, and report a receive failure
+                # instead of queueing a read against partial handshake state.
+                logger.exception(
+                    "MoRIIO handshake group failed for req %s -> %s",
+                    req_id,
+                    remote_engine_id,
+                )
+                with self.moriio_wrapper.lock:
+                    self.failed_recving.add(req_id)
+                self.load_ready_flag[remote_engine_id] = False
+                return
             logger.debug("All handshakes completed for req %s", req_id)
             self._ready_requests.put(entry)
             self.load_ready_flag[remote_engine_id] = True
@@ -836,15 +857,12 @@ class MoRIIOConnector(KVConnectorBase):
 
             return done_req_ids
 
-    def get_finished(self) -> tuple[set[int], set[str]]:
-        """Return the sets of finished sending and receiving request IDs.
-
-        Called by the worker each step via ``async_proc_aggregation``.
-
-        Returns:
-            ``(done_sending, done_recving)`` tuple.
-        """
+    def get_finished(self) -> tuple[set[int], set[str]] | KVConnectorOutput:
+        """Return completed transfers, including handshake receive failures."""
         done_recving = self._pop_done_transfers()
+        with self.moriio_wrapper.lock:
+            failed_recving = self.failed_recving.copy()
+            self.failed_recving.clear()
         if self.is_producer:
             done_sending = self.done_sending.copy()
             self.done_sending.clear()
@@ -858,6 +876,13 @@ class MoRIIOConnector(KVConnectorBase):
                 )
                 self.done_sending.clear()
             done_sending = set()
+        if failed_recving:
+            return KVConnectorOutput(
+                finished_sending=set(done_sending),
+                finished_recving=set(done_recving),
+                failed_recving=failed_recving,
+            )
+        # Preserve the legacy tuple on the ordinary success path.
         return done_sending, done_recving
 
 
