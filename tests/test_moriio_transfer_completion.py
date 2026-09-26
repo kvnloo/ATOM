@@ -59,7 +59,6 @@ def _connector(monkeypatch, statuses):
     monkeypatch.setitem(sys.modules, "aiter.dist.parallel_state", parallel_state)
 
     module_name = "atom.kv_transfer.disaggregation.moriio.moriio_connector"
-    sys.modules.pop(module_name, None)
     module = importlib.import_module(module_name)
     connector = module.MoRIIOConnector.__new__(module.MoRIIOConnector)
     connector.moriio_wrapper = _Wrapper()
