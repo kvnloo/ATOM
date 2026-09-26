@@ -11,7 +11,6 @@ KV cache migration between producer (prefill) and consumer (decode) nodes.
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import time
 from collections import defaultdict
@@ -167,7 +166,6 @@ class MoRIIOConnector(KVConnectorBase):
         self._handshake_lock = threading.RLock()
         self._handshake_futures: dict[EngineId, Future[set[str]]] = {}
         self._remote_agents: dict[EngineId, set[str]] = {}
-        self._ready_requests: queue.Queue[tuple[ReqId, ReqMeta]] = queue.Queue()
         # MoRIIO is not guaranteed to be thread-safe, limit to 1 worker.
         self._handshake_executor = ThreadPoolExecutor(
             max_workers=1,
@@ -308,8 +306,8 @@ class MoRIIOConnector(KVConnectorBase):
 
         self.request_id_to_transfer_id = metadata.request_id_to_transfer_id
 
-        remote_engine_id: str | None = None
-        need_handshake = False
+        pending_reads: list[tuple[ReqId, ReqMeta]] = []
+        handshake_engines: set[EngineId] = set()
 
         for req_id, meta in metadata.reqs_to_recv.items():
             remote_engine_id = f"{meta.remote_host}:{meta.remote_handshake_port}"
@@ -317,31 +315,28 @@ class MoRIIOConnector(KVConnectorBase):
             dp0_id = self._engine_name_with_dp(remote_engine_id, 0)
 
             if dp0_id not in self._remote_agents:
-                with self._handshake_lock:
-                    if remote_engine_id not in self._remote_agents:
-                        self._initiate_background_handshake(
-                            req_id, remote_engine_id, meta
-                        )
-                        need_handshake = True
-                        continue
+                pending_reads.append((req_id, meta))
+                if remote_engine_id not in handshake_engines:
+                    self._initiate_background_handshake(
+                        req_id, remote_engine_id, meta
+                    )
+                    handshake_engines.add(remote_engine_id)
+                continue
 
             self._issue_read_for_req(req_id, meta)
 
-        # If a handshake was needed, spin until it completes then read.
-        while need_handshake:
-            if (
-                self._ready_requests.empty()
-                and remote_engine_id not in self.load_ready_flag
-            ):
-                continue
-            elif (
-                not self._ready_requests.empty()
-                and remote_engine_id in self.load_ready_flag
-            ):
-                self._issue_read_for_req(*self._ready_requests.get_nowait())
-                break
-            else:
-                break
+        # Handshake execution is deliberately single-threaded. Wait until every
+        # unique first-contact engine in this batch has reached a terminal
+        # handshake state, then release every request that was waiting on it.
+        while handshake_engines and any(
+            engine_id not in self.load_ready_flag
+            for engine_id in handshake_engines
+        ):
+            pass
+
+        for req_id, meta in pending_reads:
+            if self.load_ready_flag.get(meta.remote_engine_id):
+                self._issue_read_for_req(req_id, meta)
 
     def _issue_read_for_req(self, req_id: str, meta: ReqMeta) -> None:
         """Issue RDMA reads for a single request."""
@@ -780,9 +775,8 @@ class MoRIIOConnector(KVConnectorBase):
         tp_size = int(meta.tp_size)
         remote_dp_size = int(meta.remote_dp_size)
 
-        def _on_all_done(_f: Future[Any], entry=(req_id, meta)):
-            logger.debug("All handshakes completed for req %s", req_id)
-            self._ready_requests.put(entry)
+        def _on_all_done(_f: Future[Any]):
+            logger.debug("All handshakes completed for engine %s", remote_engine_id)
             self.load_ready_flag[remote_engine_id] = True
             self.write_ready_flags[remote_engine_id] = True
 
