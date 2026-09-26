@@ -58,6 +58,8 @@ The clean combined contract should eventually be:
 
 Do not merge the branches mechanically until a combined test covers success and failure with multiple waiting requests.
 
+There is one additional composition edge: L1 writes `load_ready_flag[engine] = False` on failure, while L2 treats presence of an engine key as a terminal handshake observation. A later retry must clear or generation-scope that stale terminal **before** starting the new group; otherwise the caller can observe the old `False`, skip waiting for the retry, and strand that request. This is an L4 test requirement, not a reason to weaken either independent gate.
+
 ## Out-of-scope follow-up
 
 The handshake RPC itself currently has no bounded receive timeout visible in the MoRIIO wrapper path, and `start_load_kv()` busy-spins while waiting. That is a separate liveness question: solving it requires an explicit timeout value and a terminal-failure contract, not merely adding a sleep.
