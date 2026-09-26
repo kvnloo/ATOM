@@ -483,18 +483,50 @@ class MoRIIOConnector(KVConnectorBase):
         """
         if remote_engine_id not in self._built_sessions:
             nk = self.num_k_chunks
-            per_layer_sessions: list[tuple[dict, dict]] = []
-            for ln, local_metas in self.layer_name_to_local_kv_cache_metadata.items():
-                remote_metas = self.layer_name_to_remote_kv_cache_metadata[
-                    remote_engine_id
-                ][ln]
-                assert len(local_metas) == len(remote_metas), (
-                    f"layer {ln}: local has {len(local_metas)} descs, "
-                    f"remote has {len(remote_metas)} — chunk count mismatch"
+            remote_meta = self.remote_moriio_metadata[remote_engine_id]
+            if int(remote_meta.num_blocks) != int(self.num_blocks):
+                raise ValueError(
+                    "MoRIIO peer KV geometry mismatch: "
+                    f"local num_blocks={self.num_blocks}, "
+                    f"remote num_blocks={remote_meta.num_blocks}"
+                )
+            if int(remote_meta.block_len) != int(self.block_len):
+                raise ValueError(
+                    "MoRIIO peer KV geometry mismatch: "
+                    f"local block_len={self.block_len}, "
+                    f"remote block_len={remote_meta.block_len}"
                 )
 
-                def _unpack(packed):
-                    return self.moriio_wrapper.get_unpack_memory_metadata(packed)
+            remote_layers = self.layer_name_to_remote_kv_cache_metadata[
+                remote_engine_id
+            ]
+            local_layer_names = set(self.layer_name_to_local_kv_cache_metadata)
+            remote_layer_names = set(remote_layers)
+            if local_layer_names != remote_layer_names:
+                raise ValueError(
+                    "MoRIIO peer KV layer set mismatch: "
+                    f"local_only={sorted(local_layer_names - remote_layer_names)}, "
+                    f"remote_only={sorted(remote_layer_names - local_layer_names)}"
+                )
+
+            def _unpack(packed):
+                return self.moriio_wrapper.get_unpack_memory_metadata(packed)
+
+            per_layer_sessions: list[tuple[dict, dict]] = []
+            for ln, local_metas in self.layer_name_to_local_kv_cache_metadata.items():
+                remote_metas = remote_layers[ln]
+                if len(local_metas) != len(remote_metas):
+                    raise ValueError(
+                        f"MoRIIO peer layer {ln} descriptor count mismatch: "
+                        f"local={len(local_metas)}, remote={len(remote_metas)}"
+                    )
+                local_sizes = [int(_unpack(packed).size) for packed in local_metas]
+                remote_sizes = [int(_unpack(packed).size) for packed in remote_metas]
+                if local_sizes != remote_sizes:
+                    raise ValueError(
+                        f"MoRIIO peer layer {ln} registered byte geometry mismatch: "
+                        f"local={local_sizes}, remote={remote_sizes}"
+                    )
 
                 # K sessions: NxN grid over first nk entries
                 k_sessions: dict[tuple[int, int], Any] = {}
