@@ -36,7 +36,6 @@ def _module(monkeypatch):
     monkeypatch.setitem(sys.modules, "aiter.dist.parallel_state", parallel_state)
 
     name = "atom.kv_transfer.disaggregation.moriio.moriio_connector"
-    sys.modules.pop(name, None)
     return importlib.import_module(name)
 
 
