@@ -77,7 +77,9 @@ def _meta(host, port=6301):
 def _metadata(items):
     return SimpleNamespace(
         reqs_to_recv=dict(items),
-        request_id_to_transfer_id={req_id: f"transfer-{req_id}" for req_id, _ in items},
+        request_id_to_transfer_id={
+            req_id: f"transfer-{req_id}" for req_id, _ in items
+        },
     )
 
 
