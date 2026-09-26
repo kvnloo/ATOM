@@ -58,7 +58,7 @@ The downstream candidate `fix/moriio-handshake-batch-drain` @ `98ffcd216fdf0f98d
 
 Deterministic CPU coverage holds the first handshake task behind a barrier until both same-engine requests have entered `start_load_kv()`. On current main, both handshake groups are started but the method consumes only the first ready request and returns, leaving the second queue entry stranded. The candidate must issue both reads and leave the queue empty. Single-request and already-known-peer cases are controls.
 
-[Red/green/red run](https://github.com/kvnloo/ATOM/actions/runs/36211620871) is the intended evidence surface once assigned a runner; queued is not pass.
+[Red/green/red run](https://github.com/kvnloo/ATOM/actions/runs/36211761935) is the intended evidence surface once assigned a runner; queued is not pass.
 
 ## Interaction with partial peer state
 
