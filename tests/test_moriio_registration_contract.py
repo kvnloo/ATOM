@@ -12,7 +12,19 @@ import pytest
 import torch
 
 
+def _install_import_stubs(monkeypatch) -> None:
+    triton = ModuleType("triton")
+    triton.jit = lambda fn: fn
+    triton.cdiv = lambda x, y: (x + y - 1) // y
+    triton.next_power_of_2 = lambda x: 1 << (max(1, x) - 1).bit_length()
+    triton_language = ModuleType("triton.language")
+    triton.language = triton_language
+    monkeypatch.setitem(sys.modules, "triton", triton)
+    monkeypatch.setitem(sys.modules, "triton.language", triton_language)
+
+
 def _module(monkeypatch):
+    _install_import_stubs(monkeypatch)
     aiter = ModuleType("aiter")
     dist = ModuleType("aiter.dist")
     parallel_state = ModuleType("aiter.dist.parallel_state")
