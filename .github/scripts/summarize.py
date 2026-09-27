@@ -221,6 +221,7 @@ def print_regression_report(current_results, baseline_results):
 
         has_regression = False
         metric_deltas = {}
+        triggered_metrics = []
 
         for metric_key, _, higher_is_better in TRACKED_METRICS:
             cur_val = data.get(metric_key, 0)
@@ -235,6 +236,7 @@ def print_regression_report(current_results, baseline_results):
                 }
                 if _is_regression(pct, higher_is_better):
                     has_regression = True
+                    triggered_metrics.append(metric_key)
             else:
                 row.append(f"{cur_val:.2f}")
 
@@ -250,6 +252,7 @@ def print_regression_report(current_results, baseline_results):
                     "osl": osl,
                     "conc": conc,
                     "metrics": metric_deltas,
+                    "triggered_metrics": triggered_metrics,
                 }
             )
         elif baseline is None:

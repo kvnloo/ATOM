@@ -718,10 +718,18 @@ jobs:
             }
             if (!report.regressions || report.regressions.length === 0) return;
 
+            const metricLabels = {
+              output_throughput: 'Output Tput',
+              total_token_throughput: 'Total Tput',
+              mean_ttft_ms: 'Mean TTFT',
+              mean_tpot_ms: 'Mean TPOT',
+            };
             const regs = report.regressions.map(r => {
               const throughput = r.metrics.output_throughput || {};
               const tpot = r.metrics.mean_tpot_ms || {};
-              return `| ${r.model} | ${r.isl}/${r.osl} | ${r.conc} | ${throughput.current?.toFixed(1) || 'N/A'} | ${throughput.baseline?.toFixed(1) || 'N/A'} | ${throughput.pct?.toFixed(1) || 'N/A'}% | ${tpot.current?.toFixed(2) || 'N/A'} | ${tpot.baseline?.toFixed(2) || 'N/A'} | ${tpot.pct?.toFixed(1) || 'N/A'}% |`;
+              const triggers = (r.triggered_metrics || [])
+                .map(k => metricLabels[k] || k).join(', ') || 'N/A';
+              return `| ${r.model} | ${r.isl}/${r.osl} | ${r.conc} | ${throughput.current?.toFixed(1) || 'N/A'} | ${throughput.baseline?.toFixed(1) || 'N/A'} | ${throughput.pct?.toFixed(1) || 'N/A'}% | ${tpot.current?.toFixed(2) || 'N/A'} | ${tpot.baseline?.toFixed(2) || 'N/A'} | ${tpot.pct?.toFixed(1) || 'N/A'}% | ${triggers} |`;
             }).join('\n');
 
             let summary = 'Summary not available';
@@ -742,8 +750,8 @@ jobs:
 
             ### Regressed Configurations
 
-            | Model | ISL/OSL | Conc | Tput (cur) | Tput (base) | Δ% | TPOT (cur) | TPOT (base) | Δ% |
-            |-------|---------|------|-----------|------------|-----|-----------|------------|-----|
+            | Model | ISL/OSL | Conc | Tput (cur) | Tput (base) | Δ% | TPOT (cur) | TPOT (base) | Δ% | Trigger(s) |
+            |-------|---------|------|-----------|------------|-----|-----------|------------|-----|------------|
             ${regs}
 
             ### Performance Summary
