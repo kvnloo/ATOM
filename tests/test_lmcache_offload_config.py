@@ -420,4 +420,3 @@ def test_lmcache_metadata_accepts_lookup_scope_within_replica_world(
     assert isinstance(metadata, metadata_type)
     assert metadata.world_size == world_size
     assert metadata.worker_id == 0
-
