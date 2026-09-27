@@ -17,7 +17,7 @@ jobs:
     env:
       BASE_SHA: 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
       CANDIDATE_SHA: e3accb680fbc4d914f80bdf53b37f5bf2e8c29ab
-      EVIDENCE: ${{ runner.temp }}/perf-regression-trigger-evidence
+      EVIDENCE: /tmp/perf-regression-trigger-evidence
     steps:
       - uses: actions/checkout@v6
         with:
