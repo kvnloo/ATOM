@@ -46,7 +46,7 @@ jobs:
             mkdir -p tests/benchmarks
             cp "$RUNNER_TEMP/profiler-attribution-test.py" "$TEST"
             set +e
-            python -m pytest "$TEST" -q >"$EVIDENCE/${name}.log" 2>&1
+            python -m pytest --noconftest "$TEST" -q >"$EVIDENCE/${name}.log" 2>&1
             local rc=$?
             set -e
             printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           git checkout --detach "$CANDIDATE_SHA" >/dev/null
-          python -m pytest tests/benchmarks/test_regression_profiler_attribution.py -q
+          python -m pytest --noconftest tests/benchmarks/test_regression_profiler_attribution.py -q
           python -m black --check tests/benchmarks/test_regression_profiler_attribution.py
           python -m ruff check tests/benchmarks/test_regression_profiler_attribution.py
           git diff --check "$BASE_SHA" HEAD
