@@ -47,7 +47,7 @@ jobs:
             mkdir -p tests/plugin
             cp "$RUNNER_TEMP/vllm-offload-config-test.py" "$TEST"
             set +e
-            PYTHONPATH="$PWD" python -m pytest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
+            PYTHONPATH="$PWD" python -m pytest --noconftest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
             local rc=$?
             set -e
             printf '%s\n' "$rc" > "$EVIDENCE/${arm}-${test_name}.exit"
@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           git checkout --detach "$CANDIDATE_SHA" >/dev/null
-          PYTHONPATH="$PWD" python -m pytest tests/plugin/test_vllm_offload_config.py -q
+          PYTHONPATH="$PWD" python -m pytest --noconftest tests/plugin/test_vllm_offload_config.py -q
           python -m black --check             atom/plugin/vllm/kv_transfer/offload_config.py             atom/plugin/vllm/kv_transfer/connector.py             tests/plugin/test_vllm_offload_config.py
           python -m ruff check             atom/plugin/vllm/kv_transfer/offload_config.py             atom/plugin/vllm/kv_transfer/connector.py             tests/plugin/test_vllm_offload_config.py
           git diff --check "$BASE_SHA" HEAD
