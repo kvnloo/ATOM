@@ -47,7 +47,7 @@ jobs:
             mkdir -p tests/benchmarks
             cp "$RUNNER_TEMP/regression-trigger-test.py" "$TEST"
             set +e
-            python -m pytest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
+            python -m pytest --noconftest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
             local rc=$?
             set -e
             printf '%s\n' "$rc" > "$EVIDENCE/${arm}-${test_name}.exit"
