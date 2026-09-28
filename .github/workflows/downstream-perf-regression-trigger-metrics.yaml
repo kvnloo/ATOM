@@ -39,60 +39,45 @@ jobs:
           TEST=tests/benchmarks/test_regression_trigger_metrics.py
           cp "$TEST" "$RUNNER_TEMP/regression-trigger-test.py"
 
-          run_arm() {
-            local name="$1"
+          run_case() {
+            local arm="$1"
             local ref="$2"
+            local test_name="$3"
             git checkout --detach "$ref" >/dev/null
             mkdir -p tests/benchmarks
             cp "$RUNNER_TEMP/regression-trigger-test.py" "$TEST"
             set +e
-            python -m pytest "$TEST" -q --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
+            python -m pytest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
             local rc=$?
             set -e
-            printf '%s\n' "$rc" > "$EVIDENCE/${name}.exit"
+            printf '%s\n' "$rc" > "$EVIDENCE/${arm}-${test_name}.exit"
             git reset --hard HEAD >/dev/null
             git clean -fd >/dev/null
           }
 
-          run_arm original "$BASE_SHA"
-          run_arm candidate "$CANDIDATE_SHA"
-          run_arm restored "$BASE_SHA"
+          TESTS=(
+            test_hidden_ttft_trigger_is_explicit
+            test_multiple_trigger_metrics_preserve_classifier_semantics
+          )
+          for test_name in "${TESTS[@]}"; do
+            run_case original "$BASE_SHA" "$test_name"
+            run_case candidate "$CANDIDATE_SHA" "$test_name"
+            run_case restored "$BASE_SHA" "$test_name"
+          done
 
           python - <<'PY'
           import os
           from pathlib import Path
-          import xml.etree.ElementTree as ET
 
           evidence = Path(os.environ["EVIDENCE"])
-          arms = {}
-          for name in ("original", "candidate", "restored"):
-              root = ET.parse(evidence / f"{name}.xml").getroot()
-              cases = {}
-              for case in root.iter("testcase"):
-                  status = "passed"
-                  detail = ""
-                  for tag in ("failure", "error", "skipped"):
-                      node = case.find(tag)
-                      if node is not None:
-                          status = tag
-                          detail = (node.get("message") or "") + chr(10) + (node.text or "")
-                          break
-                  cases[case.get("name")] = (status, detail)
-              arms[name] = {
-                  "exit": int((evidence / f"{name}.exit").read_text()),
-                  "cases": cases,
-              }
-
-          expected = {
+          tests = (
               "test_hidden_ttft_trigger_is_explicit",
               "test_multiple_trigger_metrics_preserve_classifier_semantics",
-          }
-          for name in ("original", "restored"):
-              assert arms[name]["exit"] == 1
-              failed = {k for k, (status, _) in arms[name]["cases"].items() if status == "failure"}
-              assert failed == expected
-          assert arms["candidate"]["exit"] == 0
-          assert all(status == "passed" for status, _ in arms["candidate"]["cases"].values())
+          )
+          for test_name in tests:
+              assert int((evidence / f"original-{test_name}.exit").read_text()) == 1
+              assert int((evidence / f"candidate-{test_name}.exit").read_text()) == 0
+              assert int((evidence / f"restored-{test_name}.exit").read_text()) == 1
           print("PERF_REGRESSION_TRIGGER_RED_GREEN_RED_PASSED")
           PY
 
@@ -112,6 +97,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: perf-regression-trigger-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/perf-regression-trigger-evidence/
+          path: /tmp/perf-regression-trigger-evidence/
           if-no-files-found: error
           retention-days: 14
