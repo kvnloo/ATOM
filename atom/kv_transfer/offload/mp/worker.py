@@ -95,6 +95,24 @@ class LMCacheMPConnector(KVConnectorBase):
         self._immediate_load_failures: set[LoadCompletionId] = set()
         self._lock = threading.Lock()
 
+    def close(self) -> None:
+        """Drain LMCache transfers and unregister PAGE views before pool teardown.
+
+        ModelRunner.exit() calls connector.close() before destroying the
+        distributed environment and deleting the KV pool. LMCache's worker
+        adapter shutdown waits for submissions/futures, unregisters its views,
+        and closes the transfer context; skipping it leaves registrations that
+        still name GPU memory the runner is about to release.
+        """
+
+        adapter = self._adapter
+        if adapter is None:
+            return
+        self._adapter = None
+        shutdown = getattr(adapter, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
+
     def register_kv_caches(
         self,
         _kv_caches: dict[str, Any],
