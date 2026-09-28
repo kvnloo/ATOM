@@ -201,7 +201,7 @@ class AtomLMCacheOffloadConnector(KVConnectorBase_V1, SupportsHMA):
         # it for the group-aware paths.
         super().__init__(vllm_config, role, kv_cache_config)
         self._vllm_config = vllm_config
-        self._config = build_offload_config(vllm_config)
+        self._config = build_offload_config(vllm_config, kv_cache_config)
         self._worker = None
         self._scheduler = None
 

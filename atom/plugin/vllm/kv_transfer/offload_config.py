@@ -146,5 +146,42 @@ class OffloadConfigShim:
         )
 
 
-def build_offload_config(vllm_config: Any) -> OffloadConfigShim:
+def _validate_hybrid_recompute_scheduler(
+    vllm_config: Any,
+    kv_cache_config: Any,
+) -> None:
+    """Fail closed when hybrid load recovery still needs ATOM's scheduler."""
+
+    groups = getattr(kv_cache_config, "kv_cache_groups", None) or ()
+    if len(groups) <= 1:
+        return
+
+    kv_transfer_config = getattr(vllm_config, "kv_transfer_config", None)
+    if getattr(kv_transfer_config, "kv_load_failure_policy", "fail") != "recompute":
+        return
+
+    scheduler_config = getattr(vllm_config, "scheduler_config", None)
+    if scheduler_config is None or getattr(scheduler_config, "scheduler_cls", None) is not None:
+        return
+
+    # Keep the upstream-version detector in one place. This import is delayed
+    # until the exact multi-group + recompute cell is observable, so ordinary
+    # plugin configurations do not gain a new dependency.
+    from atom.plugin.vllm.scheduler import vllm_needs_hybrid_kv_load_fix
+
+    if vllm_needs_hybrid_kv_load_fix():
+        raise RuntimeError(
+            "ATOM vLLM offload: hybrid KV-load recompute requires ATOM's "
+            "hybrid-aware scheduler, but no scheduler class was selected. "
+            "Refusing to start because a failed external KV load would enter "
+            "vLLM's single-group recovery path."
+        )
+
+
+def build_offload_config(
+    vllm_config: Any,
+    kv_cache_config: Any = None,
+) -> OffloadConfigShim:
+    if kv_cache_config is not None:
+        _validate_hybrid_recompute_scheduler(vllm_config, kv_cache_config)
     return OffloadConfigShim(vllm_config)

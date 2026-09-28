@@ -30,7 +30,9 @@ def _vllm_config(cache_dtype="fp8", model_dtype="bfloat16", block_size=128, **kw
         kv_transfer_config=NS(
             kv_role=kw.get("role", "kv_both"),
             kv_connector_extra_config=kw.get("extra", {}),
+            kv_load_failure_policy=kw.get("failure_policy", "fail"),
         ),
+        scheduler_config=NS(scheduler_cls=kw.get("scheduler_cls")),
     )
 
 
@@ -113,3 +115,67 @@ def test_outer_only_fields_still_resolve():
 def test_flat_config_is_unaffected():
     cfg = build_offload_config(_vllm_config())
     assert cfg.hf_config.num_hidden_layers == 60
+
+
+def test_hybrid_recompute_requires_selected_scheduler_when_upstream_needs_fix(
+    monkeypatch,
+):
+    import sys
+    import types
+
+    scheduler_module = types.ModuleType("atom.plugin.vllm.scheduler")
+    scheduler_module.vllm_needs_hybrid_kv_load_fix = lambda: True
+    monkeypatch.setitem(sys.modules, "atom.plugin.vllm.scheduler", scheduler_module)
+
+    kv_cache_config = NS(kv_cache_groups=[object(), object()])
+    with pytest.raises(RuntimeError, match="hybrid-aware scheduler"):
+        build_offload_config(
+            _vllm_config(failure_policy="recompute"),
+            kv_cache_config,
+        )
+
+
+@pytest.mark.parametrize(
+    "config,groups",
+    [
+        (_vllm_config(failure_policy="fail"), [object(), object()]),
+        (_vllm_config(failure_policy="recompute"), [object()]),
+        (
+            _vllm_config(
+                failure_policy="recompute",
+                scheduler_cls="custom.scheduler.Class",
+            ),
+            [object(), object()],
+        ),
+    ],
+    ids=["failure-policy-fail", "single-group", "explicit-scheduler"],
+)
+def test_hybrid_scheduler_guard_preserves_safe_or_user_owned_cells(
+    monkeypatch,
+    config,
+    groups,
+):
+    import sys
+    import types
+
+    scheduler_module = types.ModuleType("atom.plugin.vllm.scheduler")
+    scheduler_module.vllm_needs_hybrid_kv_load_fix = lambda: True
+    monkeypatch.setitem(sys.modules, "atom.plugin.vllm.scheduler", scheduler_module)
+
+    cfg = build_offload_config(config, NS(kv_cache_groups=groups))
+    assert cfg.kv_cache_block_size == 128
+
+
+def test_hybrid_recompute_stands_down_when_upstream_no_longer_needs_fix(monkeypatch):
+    import sys
+    import types
+
+    scheduler_module = types.ModuleType("atom.plugin.vllm.scheduler")
+    scheduler_module.vllm_needs_hybrid_kv_load_fix = lambda: False
+    monkeypatch.setitem(sys.modules, "atom.plugin.vllm.scheduler", scheduler_module)
+
+    cfg = build_offload_config(
+        _vllm_config(failure_policy="recompute"),
+        NS(kv_cache_groups=[object(), object()]),
+    )
+    assert cfg.kv_cache_block_size == 128
