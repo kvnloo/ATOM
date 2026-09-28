@@ -12,6 +12,7 @@ Usage:
 import argparse
 import datetime
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -224,21 +225,43 @@ def print_regression_report(current_results, baseline_results):
         triggered_metrics = []
 
         for metric_key, _, higher_is_better in TRACKED_METRICS:
-            cur_val = data.get(metric_key, 0)
-            if baseline is not None:
-                base_val = baseline.get(metric_key, 0)
+            cur_val = data.get(metric_key)
+            base_val = baseline.get(metric_key) if baseline is not None else None
+            cur_valid = (
+                isinstance(cur_val, (int, float))
+                and not isinstance(cur_val, bool)
+                and math.isfinite(float(cur_val))
+            )
+            base_valid = (
+                isinstance(base_val, (int, float))
+                and not isinstance(base_val, bool)
+                and math.isfinite(float(base_val))
+            )
+
+            if baseline is not None and cur_valid and base_valid:
                 pct = _pct_change(cur_val, base_val)
                 row.append(_format_delta(cur_val, pct, higher_is_better))
                 metric_deltas[metric_key] = {
                     "current": cur_val,
                     "baseline": base_val,
                     "pct": round(pct, 2),
+                    "comparable": True,
                 }
                 if _is_regression(pct, higher_is_better):
                     has_regression = True
                     triggered_metrics.append(metric_key)
-            else:
+            elif baseline is not None:
+                row.append("N/A")
+                metric_deltas[metric_key] = {
+                    "current": cur_val if cur_valid else None,
+                    "baseline": base_val if base_valid else None,
+                    "pct": None,
+                    "comparable": False,
+                }
+            elif cur_valid:
                 row.append(f"{cur_val:.2f}")
+            else:
+                row.append("N/A")
 
         if has_regression:
             row.append("⚠️ **REGRESSION**")
