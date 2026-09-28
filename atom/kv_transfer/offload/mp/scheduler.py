@@ -227,19 +227,24 @@ class LMCacheMPConnectorScheduler(ChunkedOffloadSchedulerBase):
     def _end_finished_sessions(self) -> None:
         """End each finished request's session once no save of it can follow."""
         pending = self._pending_session_ends()
+        warned = self.__dict__.setdefault("_session_end_failures_logged", set())
         for sid, seq in list(pending.items()):
             entry = self._save_tracker.get(sid)
             if (entry is not None and entry[0] is seq) or sid in self._save_inflight:
                 continue
-            del pending[sid]
             try:
                 self._mp_adapter.end_session(_mp_session_id(self._config, seq.id))
             except Exception:
-                logger.warning(
-                    "LMCache MP end_session failed for request %s",
-                    seq.id,
-                    exc_info=True,
-                )
+                if sid not in warned:
+                    logger.warning(
+                        "LMCache MP end_session failed for request %s; will retry",
+                        seq.id,
+                        exc_info=True,
+                    )
+                    warned.add(sid)
+                continue
+            del pending[sid]
+            warned.discard(sid)
 
 
 __all__ = ["LMCacheMPConnectorScheduler", "LMCacheTransferUnprovable"]
