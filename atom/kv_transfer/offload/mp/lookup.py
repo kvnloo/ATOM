@@ -144,11 +144,16 @@ class _MPLookupClient:
         return None if state is None else state.hit
 
     def clear_lookup_status(self, lookup_id: str) -> None:
-        state = self._lookups.pop(lookup_id, None)
+        state = self._lookups.get(lookup_id)
         request_id = _mp_session_id(self._config, lookup_id)
         if state is not None and state.hit is None:
+            # Checking status is read-only from ATOM's side. If it raises,
+            # retain the local obligation so request_finished (or another
+            # cleanup attempt) can ask again instead of forgetting a lookup
+            # whose server-side locks may still exist.
             result = self._adapter.check_lookup_result(request_id)
             if result is None:
+                self._lookups.pop(lookup_id, None)
                 logger.warning(
                     "LMCache MP lookup for request %s is still pending during "
                     "cleanup; dropping local state while server TTL/session "
@@ -158,6 +163,11 @@ class _MPLookupClient:
                 self._adapter.cleanup_lookup_result(request_id)
                 return
             state.hit = int(result)
+
+        # From here cleanup can have side effects (freeing locks). Preserve the
+        # existing at-most-once behavior: do not retry a partially applied free
+        # merely because its transport call raised.
+        self._lookups.pop(lookup_id, None)
         # Once retrieve has started, the transfer owns the remaining read
         # locks. Failed terminal loads call complete_retrieve(False) first.
         if (
