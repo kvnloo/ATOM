@@ -74,6 +74,11 @@ class DiffusionCoreManager:
         self._output_thread = threading.Thread(
             target=self._drain_outputs, name="diffusion-outputs", daemon=True
         )
+        self._process_monitor_thread = threading.Thread(
+            target=self._monitor_processes,
+            name="diffusion-process-monitor",
+            daemon=True,
+        )
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -112,6 +117,7 @@ class DiffusionCoreManager:
 
         self._output_thread.start()
         self._await_ready()
+        self._process_monitor_thread.start()
 
     def _await_ready(self) -> None:
         pending = set(range(self.config.num_gpus))
@@ -153,6 +159,33 @@ class DiffusionCoreManager:
                     "reporting ready"
                 )
 
+    def _detect_dead_process(self) -> bool:
+        """Publish a DEAD terminal when a worker exits without sending one."""
+
+        for rank, process in enumerate(self.processes):
+            if process.is_alive() or rank in self._dead_ranks:
+                continue
+            error = (
+                f"rank {rank} process exited with code {process.exitcode} "
+                "without a terminal worker report"
+            )
+            self._dead_ranks[rank] = error
+            self.outputs.put_nowait(
+                EngineOutput(type=OutputType.DEAD, rank=rank, error=error)
+            )
+            return True
+        return False
+
+    def _monitor_processes(self) -> None:
+        # A hard crash (SIGKILL / fatal runtime exit) cannot execute the
+        # worker's exception handler that normally sends OutputType.DEAD. The
+        # engine consumes this synthetic terminal through the same output path,
+        # so an in-flight job is failed instead of remaining RUNNING forever.
+        while not self._closed:
+            if self._detect_dead_process():
+                return
+            time.sleep(0.2)
+
     def close(self) -> None:
         if self._closed:
             return
@@ -172,6 +205,8 @@ class DiffusionCoreManager:
                 process.kill()
                 process.join(timeout=10)
 
+        if self._process_monitor_thread.is_alive():
+            self._process_monitor_thread.join(timeout=1)
         for socket in [*self._input_sockets, self._output_socket]:
             socket.close(linger=0)
         self.ctx.term()

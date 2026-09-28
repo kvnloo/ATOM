@@ -7,10 +7,12 @@ lifecycle.
 """
 
 import pickle
+import queue
 
 import pytest
 
 from atom.diffusion.config import DiffusionConfig
+from atom.diffusion.engine.core_manager import DiffusionCoreManager
 from atom.diffusion.engine.diffusion_engine import DiffusionEngine
 from atom.diffusion.engine.engine_core import (
     DiffusionEngineCore,
@@ -723,3 +725,29 @@ def test_a_malformed_index_is_a_missing_one(tmp_path):
 
     tmp_path.joinpath("model_index.json").write_text("{not json")
     assert pipeline_class_for_checkpoint(str(tmp_path)) is None
+
+
+class _ExitedProcess:
+    exitcode = 137
+
+    def is_alive(self):
+        return False
+
+
+def test_manager_turns_hard_worker_exit_into_dead_terminal():
+    manager = DiffusionCoreManager.__new__(DiffusionCoreManager)
+    manager.processes = [_ExitedProcess()]
+    manager._dead_ranks = {}
+    manager.outputs = queue.Queue()
+
+    assert manager._detect_dead_process() is True
+
+    output = manager.outputs.get_nowait()
+    assert output.type is OutputType.DEAD
+    assert output.rank == 0
+    assert "exited with code 137" in output.error
+    assert manager._dead_ranks[0] == output.error
+
+    # A late poll cannot manufacture a second terminal for the same rank.
+    assert manager._detect_dead_process() is False
+    assert manager.outputs.empty()
