@@ -1,0 +1,101 @@
+name: Downstream vLLM hybrid scheduler guard
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-vllm-hybrid-scheduler-guard.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      BASE_SHA: 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
+      CANDIDATE_SHA: e19aea6ad266d0abae3bca67e454a0700644738a
+      EVIDENCE: /tmp/vllm-hybrid-guard-evidence
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install CPU test tools
+        run: |
+          python -m pip install pytest black ruff
+          mkdir -p "$EVIDENCE"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-before.txt"
+      - name: Prove unsafe hybrid cell original red, candidate green, restored red
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST=tests/plugin/test_vllm_offload_config.py
+          cp "$TEST" "$RUNNER_TEMP/vllm-offload-config-test.py"
+
+          run_case() {
+            local arm="$1"
+            local ref="$2"
+            local test_name="$3"
+            git checkout --detach "$ref" >/dev/null
+            mkdir -p tests/plugin
+            cp "$RUNNER_TEMP/vllm-offload-config-test.py" "$TEST"
+            set +e
+            PYTHONPATH="$PWD" python -m pytest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
+            local rc=$?
+            set -e
+            printf '%s\n' "$rc" > "$EVIDENCE/${arm}-${test_name}.exit"
+            git reset --hard HEAD >/dev/null
+            git clean -fd >/dev/null
+          }
+
+          TESTS=(
+            test_hybrid_recompute_requires_selected_scheduler_when_upstream_needs_fix
+            test_connector_passes_actual_kv_cache_config_to_guard
+          )
+          for test_name in "${TESTS[@]}"; do
+            run_case original "$BASE_SHA" "$test_name"
+            run_case candidate "$CANDIDATE_SHA" "$test_name"
+            run_case restored "$BASE_SHA" "$test_name"
+          done
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          evidence = Path(os.environ["EVIDENCE"])
+          tests = (
+              "test_hybrid_recompute_requires_selected_scheduler_when_upstream_needs_fix",
+              "test_connector_passes_actual_kv_cache_config_to_guard",
+          )
+          for test_name in tests:
+              assert int((evidence / f"original-{test_name}.exit").read_text()) == 1
+              assert int((evidence / f"candidate-{test_name}.exit").read_text()) == 0
+              assert int((evidence / f"restored-{test_name}.exit").read_text()) == 1
+          print("VLLM_HYBRID_SCHEDULER_GUARD_RED_GREEN_RED_PASSED")
+          PY
+      - name: Candidate full config suite and style checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$CANDIDATE_SHA" >/dev/null
+          PYTHONPATH="$PWD" python -m pytest tests/plugin/test_vllm_offload_config.py -q
+          python -m black --check             atom/plugin/vllm/kv_transfer/offload_config.py             atom/plugin/vllm/kv_transfer/connector.py             tests/plugin/test_vllm_offload_config.py
+          python -m ruff check             atom/plugin/vllm/kv_transfer/offload_config.py             atom/plugin/vllm/kv_transfer/connector.py             tests/plugin/test_vllm_offload_config.py
+          git diff --check "$BASE_SHA" HEAD
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: vllm-hybrid-scheduler-guard-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/vllm-hybrid-guard-evidence/
+          if-no-files-found: error
+          retention-days: 14
