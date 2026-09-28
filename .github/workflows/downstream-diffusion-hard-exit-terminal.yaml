@@ -47,7 +47,7 @@ jobs:
             mkdir -p tests/diffusion
             cp "$RUNNER_TEMP/diffusion-serving-test.py" "$TEST"
             set +e
-            PYTHONPATH="$PWD" python -m pytest "$TEST::$CASE" -q >"$EVIDENCE/${name}.log" 2>&1
+            PYTHONPATH="$PWD" python -m pytest --noconftest "$TEST::$CASE" -q >"$EVIDENCE/${name}.log" 2>&1
             local rc=$?
             set -e
             printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           git checkout --detach "$CANDIDATE_SHA" >/dev/null
-          PYTHONPATH="$PWD" python -m pytest tests/diffusion/test_serving.py -q
+          PYTHONPATH="$PWD" python -m pytest --noconftest tests/diffusion/test_serving.py -q
           python -m black --check atom/diffusion/engine/core_manager.py tests/diffusion/test_serving.py
           python -m ruff check atom/diffusion/engine/core_manager.py tests/diffusion/test_serving.py
           git diff --check "$BASE_SHA" HEAD
