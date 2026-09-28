@@ -19,6 +19,22 @@ ATOM's benchmark bundle is already unusually strict about provenance. The next i
 
 `installed_package()` is already generic for installed Python distributions and deliberately leaves unknown identity unknown. AITER has one additional conservative rule: a clean `+g<sha>` package-version suffix may supply an abbreviated commit; it is never expanded or replaced by a checkout guess.
 
+## Plugin benchmark parity check
+
+The repo-wide follow-up found an important existing coverage point:
+
+- the vLLM benchmark workflow already enriches every copied result with `atom_source_sha`, `vllm_commit`, `vllm_version`, image source/tag and benchmark client;
+- the SGLang benchmark shard likewise enriches results with `atom_source_sha`, `sglang_ref`, `sglang_version`, image source/tag, runner/topology fields and publication metadata.
+
+So **framework identity is already present in the lightweight plugin benchmark results**. Do not duplicate that work in a second plugin metadata layer.
+
+The remaining provenance gap is narrower:
+
+1. strict/native benchmark bundles do not yet select cache/transport/framework identities beyond their existing ATOM/AITER/harness fields;
+2. plugin result matching/regression code must actually *use* the provenance dimensions it already records when they define curve identity.
+
+This moved the highest-value next task from “capture vLLM/SGLang version” to the baseline-key audit in `PERF_REGRESSION_BASELINE_KEY_AUDIT.md`.
+
 ## Gap
 
 The `software` section does not directly identify the installed framework/transport/cache packages that may actually execute a benchmark cell, for example the selected plugin framework or an external cache/transport Python package.
