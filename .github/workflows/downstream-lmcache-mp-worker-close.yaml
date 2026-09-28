@@ -1,0 +1,125 @@
+name: Downstream LMCache MP worker close
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-lmcache-mp-worker-close.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CUDA_VISIBLE_DEVICES: ''
+      ROCR_VISIBLE_DEVICES: ''
+      BASE_SHA: aa0c5c3a131d98124726b41ab62342bb8cafb207
+      CANDIDATE_SHA: 2d1c4e0c9129d8190a6964ccb4a3119232c80cd8
+      EVIDENCE: /tmp/lmcache-mp-worker-close-evidence
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install one CPU environment
+        timeout-minutes: 14
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE"
+          python -m venv "$RUNNER_TEMP/mp-worker-close-venv"
+          source "$RUNNER_TEMP/mp-worker-close-venv/bin/activate"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          SETUPTOOLS_SCM_PRETEND_VERSION_FOR_ATOM=0.0.0+cpu.close python -m pip install -e .
+          python -m pip install pytest msgpack quart jsonschema av pillow httpx black ruff
+          python -m pip freeze --all > "$EVIDENCE/dependencies-before.txt"
+      - name: Prove worker adapter close original red candidate green restored red
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/mp-worker-close-venv/bin/activate"
+          TEST=tests/test_lmcache_mp_worker_close.py
+          cp "$TEST" "$RUNNER_TEMP/mp-worker-close-test.py"
+
+          run_arm() {
+            local name="$1"
+            local ref="$2"
+            git checkout --detach "$ref" >/dev/null
+            cp "$RUNNER_TEMP/mp-worker-close-test.py" "$TEST"
+            set +e
+            PYTHONPATH="$PWD" python -m pytest "$TEST" -q               --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
+            local rc=$?
+            set -e
+            printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
+            git reset --hard HEAD >/dev/null
+            git clean -fd >/dev/null
+          }
+
+          run_arm original "$BASE_SHA"
+          run_arm candidate "$CANDIDATE_SHA"
+          run_arm restored "$BASE_SHA"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          evidence = Path(os.environ["EVIDENCE"])
+          expected = {
+              "test_close_shuts_down_registered_adapter_once",
+              "test_public_shell_forwards_close_to_selected_worker",
+          }
+          control = "test_close_before_registration_is_a_noop"
+          for name in ("original", "candidate", "restored"):
+              root = ET.parse(evidence / f"{name}.xml").getroot()
+              statuses = {}
+              for case in root.iter("testcase"):
+                  status = "passed"
+                  for tag in ("failure", "error", "skipped"):
+                      if case.find(tag) is not None:
+                          status = tag
+                          break
+                  statuses[case.get("name")] = status
+              rc = int((evidence / f"{name}.exit").read_text())
+              if name == "candidate":
+                  assert rc == 0
+                  assert all(value == "passed" for value in statuses.values())
+              else:
+                  assert rc == 1
+                  failed = {key for key, value in statuses.items() if value in {"failure", "error"}}
+                  assert failed == expected
+                  assert statuses[control] == "passed"
+          print("LMCACHE_MP_WORKER_CLOSE_RED_GREEN_RED_PASSED")
+          PY
+      - name: Candidate current MP shell suite and style
+        timeout-minutes: 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/mp-worker-close-venv/bin/activate"
+          git checkout --detach "$CANDIDATE_SHA" >/dev/null
+          PYTHONPATH="$PWD" python -m pytest             tests/test_lmcache_mp_worker_close.py             tests/test_lmcache_mp_shell.py             -q -rs 2>&1 | tee "$EVIDENCE/focused.log"
+          python -m black --check             atom/kv_transfer/offload/mp/worker.py             tests/test_lmcache_mp_worker_close.py 2>&1 | tee "$EVIDENCE/black.log"
+          python -m ruff check             atom/kv_transfer/offload/mp/worker.py             tests/test_lmcache_mp_worker_close.py 2>&1 | tee "$EVIDENCE/ruff.log"
+          git diff --check "$BASE_SHA" HEAD | tee "$EVIDENCE/diff-check.log"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: lmcache-mp-worker-close-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/lmcache-mp-worker-close-evidence/
+          if-no-files-found: error
+          retention-days: 14
