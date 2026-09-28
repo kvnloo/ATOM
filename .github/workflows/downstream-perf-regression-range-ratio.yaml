@@ -1,0 +1,91 @@
+name: Downstream perf regression range ratio key
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-perf-regression-range-ratio.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      BASE_SHA: e982f891e366ee13ac30312042f8e8edc2bfc9d2
+      CANDIDATE_SHA: 445de3a723b53d7481b894716778d7c815027815
+      EVIDENCE: /tmp/perf-regression-ratio-evidence
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install CPU test tools
+        run: |
+          python -m pip install pytest black ruff
+          mkdir -p "$EVIDENCE"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-before.txt"
+      - name: Prove ratio collision original red, candidate green, restored red
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST=tests/benchmarks/test_regression_range_ratio_key.py
+          cp "$TEST" "$RUNNER_TEMP/regression-ratio-test.py"
+
+          run_case() {
+            local arm="$1"
+            local ref="$2"
+            local test_name="$3"
+            git checkout --detach "$ref" >/dev/null
+            mkdir -p tests/benchmarks
+            cp "$RUNNER_TEMP/regression-ratio-test.py" "$TEST"
+            set +e
+            python -m pytest "$TEST::${test_name}" -q >"$EVIDENCE/${arm}-${test_name}.log" 2>&1
+            local rc=$?
+            set -e
+            printf '%s\n' "$rc" > "$EVIDENCE/${arm}-${test_name}.exit"
+            git reset --hard HEAD >/dev/null
+            git clean -fd >/dev/null
+          }
+
+          causal=test_different_range_ratios_do_not_share_a_baseline_key
+          run_case original "$BASE_SHA" "$causal"
+          run_case candidate "$CANDIDATE_SHA" "$causal"
+          run_case restored "$BASE_SHA" "$causal"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          evidence = Path(os.environ["EVIDENCE"])
+          test = "test_different_range_ratios_do_not_share_a_baseline_key"
+          assert int((evidence / f"original-{test}.exit").read_text()) == 1
+          assert int((evidence / f"candidate-{test}.exit").read_text()) == 0
+          assert int((evidence / f"restored-{test}.exit").read_text()) == 1
+          print("PERF_REGRESSION_RANGE_RATIO_RED_GREEN_RED_PASSED")
+          PY
+      - name: Candidate stacked regression suite and style checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$CANDIDATE_SHA" >/dev/null
+          python -m pytest             tests/benchmarks/test_regression_trigger_metrics.py             tests/benchmarks/test_regression_missing_metrics.py             tests/benchmarks/test_regression_range_ratio_key.py -q
+          python -m black --check             .github/scripts/summarize.py             tests/benchmarks/test_regression_trigger_metrics.py             tests/benchmarks/test_regression_missing_metrics.py             tests/benchmarks/test_regression_range_ratio_key.py
+          python -m ruff check             .github/scripts/summarize.py             tests/benchmarks/test_regression_trigger_metrics.py             tests/benchmarks/test_regression_missing_metrics.py             tests/benchmarks/test_regression_range_ratio_key.py
+          git diff --check "$BASE_SHA" HEAD
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: perf-regression-ratio-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/perf-regression-ratio-evidence/
+          if-no-files-found: error
+          retention-days: 14
