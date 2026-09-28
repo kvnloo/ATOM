@@ -1,0 +1,89 @@
+name: Downstream diffusion hard-exit terminal
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-diffusion-hard-exit-terminal.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BASE_SHA: 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e
+      CANDIDATE_SHA: f166e04b2823299b94b0719c1354d8010bfd21cf
+      EVIDENCE: /tmp/diffusion-hard-exit-evidence
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install CPU test tools
+        run: |
+          python -m pip install pytest black ruff pyzmq
+          mkdir -p "$EVIDENCE"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-before.txt"
+      - name: Prove hard-exit original red, candidate green, restored red
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST=tests/diffusion/test_serving.py
+          cp "$TEST" "$RUNNER_TEMP/diffusion-serving-test.py"
+          CASE=test_manager_turns_hard_worker_exit_into_dead_terminal
+
+          run_arm() {
+            local name="$1"
+            local ref="$2"
+            git checkout --detach "$ref" >/dev/null
+            mkdir -p tests/diffusion
+            cp "$RUNNER_TEMP/diffusion-serving-test.py" "$TEST"
+            set +e
+            PYTHONPATH="$PWD" python -m pytest "$TEST::$CASE" -q >"$EVIDENCE/${name}.log" 2>&1
+            local rc=$?
+            set -e
+            printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
+            git reset --hard HEAD >/dev/null
+            git clean -fd >/dev/null
+          }
+
+          run_arm original "$BASE_SHA"
+          run_arm candidate "$CANDIDATE_SHA"
+          run_arm restored "$BASE_SHA"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          evidence = Path(os.environ["EVIDENCE"])
+          assert int((evidence / "original.exit").read_text()) == 1
+          assert int((evidence / "candidate.exit").read_text()) == 0
+          assert int((evidence / "restored.exit").read_text()) == 1
+          print("DIFFUSION_HARD_EXIT_RED_GREEN_RED_PASSED")
+          PY
+      - name: Candidate focused suite and style checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$CANDIDATE_SHA" >/dev/null
+          PYTHONPATH="$PWD" python -m pytest tests/diffusion/test_serving.py -q
+          python -m black --check atom/diffusion/engine/core_manager.py tests/diffusion/test_serving.py
+          python -m ruff check atom/diffusion/engine/core_manager.py tests/diffusion/test_serving.py
+          git diff --check "$BASE_SHA" HEAD
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: diffusion-hard-exit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/diffusion-hard-exit-evidence/
+          if-no-files-found: error
+          retention-days: 14
