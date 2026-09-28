@@ -98,6 +98,21 @@ def _display_model(data):
     return model
 
 
+def _range_ratio_key(data):
+    """Normalize the random workload's length-range ratio for baseline matching."""
+
+    raw = data.get("random_range_ratio")
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return ("invalid", str(raw))
+    if not math.isfinite(value):
+        return ("invalid", str(raw))
+    return value
+
+
 def _config_key(data):
     """Unique identifier for matching a benchmark configuration across runs."""
     return (
@@ -106,6 +121,7 @@ def _config_key(data):
         int(data.get("random_input_len", 0)),
         int(data.get("random_output_len", 0)),
         int(data.get("max_concurrency", 0)),
+        _range_ratio_key(data),
     )
 
 
