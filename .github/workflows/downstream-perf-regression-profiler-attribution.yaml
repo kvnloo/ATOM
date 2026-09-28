@@ -1,0 +1,88 @@
+name: Downstream perf regression profiler attribution
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - .github/workflows/downstream-perf-regression-profiler-attribution.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BASE_SHA: e3accb680fbc4d914f80bdf53b37f5bf2e8c29ab
+      CANDIDATE_SHA: b73a039ba381e7c0d53cdbf95edb45bbbeeb068c
+      EVIDENCE: /tmp/perf-regression-profiler-evidence
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install CPU test tools
+        run: |
+          python -m pip install pytest black ruff
+          mkdir -p "$EVIDENCE"
+          python -m pip freeze --all > "$EVIDENCE/dependencies-before.txt"
+      - name: Prove arbitrary-summary original red, candidate green, restored red
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST=tests/benchmarks/test_regression_profiler_attribution.py
+          cp "$TEST" "$RUNNER_TEMP/profiler-attribution-test.py"
+
+          run_arm() {
+            local name="$1"
+            local ref="$2"
+            git checkout --detach "$ref" >/dev/null
+            mkdir -p tests/benchmarks
+            cp "$RUNNER_TEMP/profiler-attribution-test.py" "$TEST"
+            set +e
+            python -m pytest "$TEST" -q >"$EVIDENCE/${name}.log" 2>&1
+            local rc=$?
+            set -e
+            printf '%s\n' "$rc" >"$EVIDENCE/${name}.exit"
+            git reset --hard HEAD >/dev/null
+            git clean -fd >/dev/null
+          }
+
+          run_arm original "$BASE_SHA"
+          run_arm candidate "$CANDIDATE_SHA"
+          run_arm restored "$BASE_SHA"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          evidence = Path(os.environ["EVIDENCE"])
+          assert int((evidence / "original.exit").read_text()) == 1
+          assert int((evidence / "candidate.exit").read_text()) == 0
+          assert int((evidence / "restored.exit").read_text()) == 1
+          print("PERF_REGRESSION_PROFILER_ATTRIBUTION_RED_GREEN_RED_PASSED")
+          PY
+      - name: Candidate style and focused checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$CANDIDATE_SHA" >/dev/null
+          python -m pytest tests/benchmarks/test_regression_profiler_attribution.py -q
+          python -m black --check tests/benchmarks/test_regression_profiler_attribution.py
+          python -m ruff check tests/benchmarks/test_regression_profiler_attribution.py
+          git diff --check "$BASE_SHA" HEAD
+          python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
+          cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: perf-regression-profiler-attribution-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/perf-regression-profiler-evidence/
+          if-no-files-found: error
+          retention-days: 14
