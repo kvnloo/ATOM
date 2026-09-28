@@ -179,3 +179,17 @@ def test_hybrid_recompute_stands_down_when_upstream_no_longer_needs_fix(monkeypa
         NS(kv_cache_groups=[object(), object()]),
     )
     assert cfg.kv_cache_block_size == 128
+
+
+def test_connector_passes_actual_kv_cache_config_to_guard():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).parents[2]
+        / "atom"
+        / "plugin"
+        / "vllm"
+        / "kv_transfer"
+        / "connector.py"
+    ).read_text(encoding="utf-8")
+    assert "build_offload_config(vllm_config, kv_cache_config)" in source
