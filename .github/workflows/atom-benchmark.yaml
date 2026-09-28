@@ -732,16 +732,27 @@ jobs:
               return `| ${r.model} | ${r.isl}/${r.osl} | ${r.conc} | ${throughput.current?.toFixed(1) || 'N/A'} | ${throughput.baseline?.toFixed(1) || 'N/A'} | ${throughput.pct?.toFixed(1) || 'N/A'}% | ${tpot.current?.toFixed(2) || 'N/A'} | ${tpot.baseline?.toFixed(2) || 'N/A'} | ${tpot.pct?.toFixed(1) || 'N/A'}% | ${triggers} |`;
             }).join('\n');
 
-            let summary = 'Summary not available';
+            let profilerSummary = 'No per-config profiler summary was available.';
             try {
               const dirs = fs.readdirSync('profiler-analysis').filter(d =>
                 fs.statSync(`profiler-analysis/${d}`).isDirectory());
-              for (const d of dirs) {
+              const summaries = dirs.flatMap(d => {
                 const p = `profiler-analysis/${d}/performance_summary.md`;
-                if (fs.existsSync(p)) { summary = fs.readFileSync(p, 'utf8'); break; }
+                return fs.existsSync(p)
+                  ? [{ config: d, text: fs.readFileSync(p, 'utf8') }]
+                  : [];
+              });
+              if (summaries.length === 1) {
+                profilerSummary =
+                  `Config: \`${summaries[0].config}\`\n\n${summaries[0].text}`;
+              } else if (summaries.length > 1) {
+                const names = summaries.map(s => `\`${s.config}\``).join(', ');
+                profilerSummary =
+                  `Per-config profiler summaries are available for: ${names}. ` +
+                  `No single summary is embedded because it would not explain every regressed row. ` +
+                  `Download the profiler-analysis artifact to inspect each configuration separately.`;
               }
             } catch(e) { /* ignore */ }
-
             const body = `## Performance Regression Detected
 
             **Commit:** \`${context.sha.substring(0, 8)}\`
@@ -754,12 +765,9 @@ jobs:
             |-------|---------|------|-----------|------------|-----|-----------|------------|-----|------------|
             ${regs}
 
-            ### Performance Summary
+            ### Profiler Analysis
 
-            \`\`\`
-            ${summary}
-            \`\`\`
-
+            ${profilerSummary}
             ### Profiler Traces
 
             Download from [workflow artifacts](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).
