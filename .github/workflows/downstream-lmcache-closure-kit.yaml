@@ -1,0 +1,31 @@
+name: Downstream LMCache closure kit
+
+on:
+  push:
+    branches: [work/lmcache-lookup-qualification]
+    paths:
+      - experiments/lmcache_qualification/**
+      - .github/workflows/downstream-lmcache-closure-kit.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contract:
+    if: github.repository == 'kvnloo/ATOM'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest black ruff
+      - name: Qualification helper tests
+        run: python -m pytest experiments/lmcache_qualification/test_qualification.py -q
+      - name: Syntax and style
+        run: |
+          bash -n experiments/lmcache_qualification/run_dense_host_smoke.sh
+          python -m black --check experiments/lmcache_qualification
+          python -m ruff check experiments/lmcache_qualification
+          git diff --check
