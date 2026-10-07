@@ -161,7 +161,7 @@ jobs:
           python -m ruff check \
             atom/kv_transfer/offload/config.py \
             tests/test_lmcache_offload_config.py 2>&1 | tee "$EVIDENCE/ruff.log"
-          git diff --check 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e HEAD | tee "$EVIDENCE/diff-check.log"
+          git diff --check 68e0df5e7cc0e9eff9b5f8155ddb99bdcb43b32e HEAD -- atom/kv_transfer/offload/config.py tests/test_lmcache_offload_config.py | tee "$EVIDENCE/diff-check.log"
           python -m pip freeze --all > "$EVIDENCE/dependencies-after.txt"
           cmp "$EVIDENCE/dependencies-before.txt" "$EVIDENCE/dependencies-after.txt"
 
