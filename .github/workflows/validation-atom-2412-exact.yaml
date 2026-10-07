@@ -68,7 +68,7 @@ jobs:
             cp "$RUNNER_TEMP/scope-test.py" "$TEST"
             set +e
             PYTHONPATH="$PWD" python -m pytest "$TEST" -q -rs \
-              -k 'lmcache_metadata_rejects_lookup_scope or lmcache_metadata_accepts_lookup_scope' \
+              -k 'lmcache_metadata_rejects_lookup_scope_outside_replica_world or lmcache_metadata_accepts_lookup_scope_within_replica_world or lmcache_metadata_rejects_scalar_lookup_scope or lmcache_metadata_rejects_duplicate_lookup_scope or lmcache_metadata_accepts_tuple_lookup_scope' \
               --junitxml="$EVIDENCE/${name}.xml" >"$EVIDENCE/${name}.log" 2>&1
             local rc=$?
             set -e
