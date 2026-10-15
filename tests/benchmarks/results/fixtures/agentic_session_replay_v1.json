@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "seed": 42,
+  "sessions": [
+    {
+      "session_id": "synthetic-coding",
+      "scenario": "interactive_coding_loop",
+      "turns": [
+        {"turn_id": "inspect", "endpoint": "chat", "input": [{"role": "user", "content": "Inspect toy code."}], "branch": "main", "prefix_group": "public-toy-repo", "tool_pause_ms": 1200},
+        {"turn_id": "edit", "endpoint": "responses", "input": [{"role": "user", "content": "Edit toy code."}], "branch": "main", "parent_turn_id": "inspect", "prefix_group": "public-toy-repo", "think_time_ms": 300, "tool_pause_ms": 500},
+        {"turn_id": "verify", "endpoint": "chat", "input": [{"role": "user", "content": "Test toy code."}], "parent_turn_id": "edit", "prefix_group": "public-toy-repo"}
+      ]
+    },
+    {
+      "session_id": "synthetic-research",
+      "scenario": "parallel_research_fanout",
+      "turns": [
+        {"turn_id": "plan", "endpoint": "responses", "input": [{"role": "user", "content": "Compare public data A and B."}]},
+        {"turn_id": "source-a", "endpoint": "chat", "input": [{"role": "user", "content": "Read public A."}], "parent_turn_id": "plan", "branch": "research-a", "tool_pause_ms": 900},
+        {"turn_id": "source-b", "endpoint": "chat", "input": [{"role": "user", "content": "Read public B."}], "parent_turn_id": "plan", "branch": "research-b", "tool_pause_ms": 700},
+        {"turn_id": "synthesis", "endpoint": "responses", "input": [{"role": "user", "content": "Summarize toy sources."}], "parent_turn_id": "source-b"}
+      ]
+    },
+    {
+      "session_id": "synthetic-durable",
+      "scenario": "scheduled_durable_agent",
+      "turns": [
+        {"turn_id": "morning", "endpoint": "chat", "input": [{"role": "user", "content": "Check synthetic queue."}], "prefix_group": "queue-synthetic"},
+        {"turn_id": "later", "endpoint": "responses", "input": [{"role": "user", "content": "Check synthetic queue again."}], "think_time_ms": 1800000, "parent_turn_id": "morning", "prefix_group": "queue-synthetic"}
+      ]
+    },
+    {
+      "session_id": "synthetic-recovery",
+      "scenario": "failure_recovery",
+      "turns": [
+        {"turn_id": "cancelled", "endpoint": "chat", "input": [{"role": "user", "content": "Cancel synthetic response."}], "expected_terminal": "cancelled"},
+        {"turn_id": "cache-miss", "endpoint": "responses", "input": [{"role": "user", "content": "Simulate an external cache miss."}], "expected_terminal": "error", "parent_turn_id": "cancelled"},
+        {"turn_id": "recompute", "endpoint": "chat", "input": [{"role": "user", "content": "Retry via local recompute."}], "parent_turn_id": "cache-miss"}
+      ]
+    }
+  ]
+}
