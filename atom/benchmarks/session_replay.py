@@ -47,7 +47,14 @@ def _ns(value: Any, label: str) -> int:
         raise ReplayContractError(
             f"{label} must be integer nanoseconds or decimal string"
         )
-    parsed = int(value)
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        # CPython limits decimal-to-int conversion length; return a contract
+        # error rather than crashing the replay CLI on untrusted JSONL input.
+        raise ReplayContractError(
+            f"{label} must be parseable integer nanoseconds"
+        ) from exc
     if parsed < 0:
         raise ReplayContractError(f"{label} must be non-negative nanoseconds")
     return parsed
