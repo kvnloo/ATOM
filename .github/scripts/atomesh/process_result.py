@@ -74,7 +74,7 @@ def number(*values: Any) -> float | None:
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return None
 
 

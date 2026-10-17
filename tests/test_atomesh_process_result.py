@@ -175,6 +175,21 @@ class NonFiniteBenchmarkMetricsTest(unittest.TestCase):
             process_result.metric_entry("TTFT", "ms", enormous, None)
         )
 
+    def test_overlong_unquoted_json_integer_artifact_is_ignored(self):
+        # json.loads raises ValueError (rather than JSONDecodeError) when an
+        # unquoted integer exceeds CPython's decimal conversion limit.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "result.json"
+            path.write_text(
+                '{"total_token_throughput": ' + "9" * 6000 + "}",
+                encoding="utf-8",
+            )
+            self.assertIsNone(process_result.read_json(path))
+            path.write_text('{"total_token_throughput": 0}', encoding="utf-8")
+            self.assertEqual(
+                process_result.read_json(path), {"total_token_throughput": 0}
+            )
+
     def test_all_nonfinite_throughput_has_no_dashboard_point(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
