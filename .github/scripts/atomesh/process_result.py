@@ -64,7 +64,7 @@ def number(*values: Any) -> float | None:
             continue
         try:
             parsed = float(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if math.isfinite(parsed):
             return parsed

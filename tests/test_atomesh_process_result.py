@@ -165,6 +165,16 @@ class NonFiniteBenchmarkMetricsTest(unittest.TestCase):
             process_result.metric_entry("TTFT", "ms", 0, None)["value"], 0.0
         )
 
+    def test_unrepresentable_json_integer_is_missing_with_fallback(self):
+        # Unquoted JSON integers can exceed the finite float range.
+        enormous = json.loads(json.dumps({"value": 10**309}))["value"]
+        self.assertIsNone(process_result.number(enormous))
+        self.assertEqual(process_result.number(enormous, "17.25"), 17.25)
+        self.assertEqual(process_result.number(0, enormous), 0.0)
+        self.assertIsNone(
+            process_result.metric_entry("TTFT", "ms", enormous, None)
+        )
+
     def test_all_nonfinite_throughput_has_no_dashboard_point(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
