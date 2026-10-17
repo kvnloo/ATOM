@@ -399,7 +399,9 @@ def main() -> int:
             output = reconcile(plan, observations, boundaries=boundaries)
         print(json.dumps(output, indent=2, sort_keys=True))
         return 0
-    except (OSError, ReplayContractError, json.JSONDecodeError) as exc:
+    # JSON decoding may fail with ValueError for oversized unquoted integers
+    # before the timestamp validator can turn them into ReplayContractError.
+    except (OSError, ValueError) as exc:
         print(f"replay contract: {exc}", file=sys.stderr)
         return 2
 
