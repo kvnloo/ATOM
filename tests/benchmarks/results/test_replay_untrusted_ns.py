@@ -174,6 +174,76 @@ class TestUntrustedNanoseconds(unittest.TestCase):
                 self.assertIn("replay contract:", result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
 
+    def test_reconcile_unrepresentable_observed_seconds_fail_closed(self):
+        plan = replay.compile_plan(FIXTURE)
+        request_id = plan["requests"][0]["request_id"]
+        enormous = "9" * 315  # Valid int/JSON input, too large for float seconds.
+        for affected in ("end_ns", "tool_pause_ns", "think_ns"):
+            with self.subTest(affected=affected):
+                event = {
+                    "request_id": request_id,
+                    "status": "success",
+                    "start_ns": 1000,
+                    "end_ns": 2000,
+                    "clock_id": "origin-1",
+                }
+                event[affected] = enormous
+                with self.assertRaisesRegex(
+                    replay.ReplayContractError, "finite seconds"
+                ):
+                    replay.reconcile(plan, [event])
+
+    def test_reconcile_unrepresentable_session_wall_fails_closed(self):
+        plan = replay.compile_plan(FIXTURE)
+        events = [{
+            "request_id": plan["requests"][0]["request_id"],
+            "status": "success", "start_ns": 1000, "end_ns": 2000,
+            "clock_id": "origin-1",
+        }]
+        boundaries = [
+            {"session_id": "public-cpu-case", "event": "session_started",
+             "timestamp_ns": 500, "clock_id": "origin-1"},
+            {"session_id": "public-cpu-case", "event": "session_finished",
+             "timestamp_ns": "9" * 315, "clock_id": "origin-1"},
+        ]
+        with self.assertRaisesRegex(replay.ReplayContractError, "finite seconds"):
+            replay.reconcile(plan, events, boundaries)
+
+    def test_cli_parseable_huge_duration_is_controlled_error(self):
+        plan = replay.compile_plan(FIXTURE)
+        req_id = plan["requests"][0]["request_id"]
+        huge = "9" * 315  # Below CPython JSON integer digit limit.
+        for affected in ("end_ns", "tool_pause_ns", "think_ns", "boundary"):
+            with self.subTest(affected=affected), TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                fixture_file = directory / "fixture.json"
+                fixture_file.write_text(json.dumps(FIXTURE))
+                event = {
+                    "request_id": req_id, "status": "success",
+                    "start_ns": 1000, "end_ns": 2000, "clock_id": "origin-1",
+                }
+                if affected != "boundary":
+                    event[affected] = huge
+                obs_file = directory / "observations.jsonl"
+                obs_file.write_text(json.dumps(event))
+                command = [sys.executable, str(SCRIPT), str(fixture_file),
+                           "--observations", str(obs_file)]
+                if affected == "boundary":
+                    boundary_file = directory / "boundaries.jsonl"
+                    boundary_file.write_text("\n".join([
+                        json.dumps({"session_id": "public-cpu-case",
+                                    "event": "session_started", "timestamp_ns": 500,
+                                    "clock_id": "origin-1"}),
+                        json.dumps({"session_id": "public-cpu-case",
+                                    "event": "session_finished", "timestamp_ns": huge,
+                                    "clock_id": "origin-1"}),
+                    ]))
+                    command.extend(["--boundaries", str(boundary_file)])
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr[:500])
+                self.assertIn("replay contract:", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
     def test_normal_cli_plan_still_succeeds(self):
         with TemporaryDirectory() as tmp:
             fixture_file = Path(tmp) / "fixture.json"

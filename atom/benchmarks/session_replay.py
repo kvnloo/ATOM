@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -58,6 +59,17 @@ def _ns(value: Any, label: str) -> int:
     if parsed < 0:
         raise ReplayContractError(f"{label} must be non-negative nanoseconds")
     return parsed
+
+
+def _finite_seconds(nanoseconds: int, label: str, total: float = 0.0) -> float:
+    """Reject observations that cannot be reported as finite float seconds."""
+    try:
+        seconds = total + nanoseconds / 1e9
+    except OverflowError as exc:
+        raise ReplayContractError(f"{label} exceeds finite seconds range") from exc
+    if not math.isfinite(seconds):
+        raise ReplayContractError(f"{label} exceeds finite seconds range")
+    return seconds
 
 
 def canonical_sha256(value: Any) -> str:
@@ -293,7 +305,9 @@ def reconcile(
                 s["request_end_ns"] = end
             else:
                 s["request_end_ns"] = max(end, s["request_end_ns"])
-            s["client_request_s"] += (end - start) / 1e9
+            s["client_request_s"] = _finite_seconds(
+                end - start, f"{req_id}.client_request_s", s["client_request_s"]
+            )
             s["_timestamps"] += 1
             clock = (
                 _id(row["clock_id"], f"{req_id}.clock_id")
@@ -307,7 +321,7 @@ def reconcile(
         ):
             if key in row:
                 value = _ns(row[key], f"{req_id}.{key}")
-                s[target] += value / 1e9
+                s[target] = _finite_seconds(value, f"{req_id}.{key}", s[target])
                 s[counter] += 1
 
     missing = sorted(set(requests) - seen)
@@ -326,7 +340,7 @@ def reconcile(
         else:
             # A cross-request min/max span is meaningless across clock domains.
             value["request_window_s"] = (
-                (b - a) / 1e9
+                _finite_seconds(b - a, f"{sid}.request_window_s")
                 if a is not None and len(clocks) == 1 and None not in clocks
                 else None
             )
@@ -348,7 +362,9 @@ def reconcile(
                     raise ReplayContractError(
                         f"{req_id}: request outside session boundaries on same clock"
                     )
-            value["session_wall_s"] = (finish - begin) / 1e9
+            value["session_wall_s"] = _finite_seconds(
+                finish - begin, f"{sid}.session_wall_s"
+            )
             value["session_wall_clock_id"] = boundary_clock
         value["statuses"] = dict(value["statuses"])
     return {
