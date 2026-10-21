@@ -20,6 +20,10 @@ from typing import Any
 SCHEMA_VERSION = 1
 ENDPOINTS = frozenset({"chat", "responses"})
 TERMINALS = frozenset({"success", "error", "cancelled", "timeout"})
+IDENTITY_ECHO_FIELDS = (
+    "session_id", "turn_id", "parent_request_id",
+    "endpoint", "branch", "prefix_group",
+)
 
 
 class ReplayContractError(ValueError):
@@ -29,6 +33,10 @@ class ReplayContractError(ValueError):
 def _id(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ReplayContractError(f"{label} must be a non-empty string")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ReplayContractError(f"{label} must be valid UTF-8") from exc
     return value
 
 
@@ -303,6 +311,9 @@ def reconcile(
     seen: set[str] = set()
     status_counts: Counter[str] = Counter()
     unexpected_terminals: list[dict[str, str]] = []
+    identity_echo_coverage: Counter[str] = Counter()
+    fully_echoed_requests = 0
+    stamped_by_request: dict[str, tuple[int, str | None]] = {}
     session: dict[str, dict[str, Any]] = {}
     for req in plan["requests"]:
         session.setdefault(req["session_id"], {
@@ -343,6 +354,18 @@ def reconcile(
             raise ReplayContractError(f"{req_id}: mismatched turn identity")
         if row.get("parent_request_id", expected["parent_request_id"]) != expected["parent_request_id"]:
             raise ReplayContractError(f"{req_id}: mismatched parent identity")
+        # Optional echoes must name the planned API route and prefix cohort.
+        # Missing echoes remain valid for existing minimal JSONL producers.
+        for field in ("endpoint", "branch", "prefix_group"):
+            if field in row and row[field] != expected[field]:
+                raise ReplayContractError(f"{req_id}: mismatched {field}")
+        # A planned identity is not evidence that the observed producer used
+        # that route. Record which optional identity echoes were actually
+        # supplied; accepting legacy minimal rows must not imply attestation.
+        echoed = sum(field in row for field in IDENTITY_ECHO_FIELDS)
+        if echoed == len(IDENTITY_ECHO_FIELDS):
+            fully_echoed_requests += 1
+        identity_echo_coverage.update(field for field in IDENTITY_ECHO_FIELDS if field in row)
         if status != expected["expected_terminal"]:
             # Unexpected responses are benchmark outcomes, not malformed input.
             # Retain them in summaries instead of hiding a genuine failure.
@@ -385,6 +408,7 @@ def reconcile(
             )
             s["_request_clocks"].add(clock)
             s["_stamped_requests"].append((req_id, start, end, clock))
+            stamped_by_request[req_id] = (start, clock)
         for key, target, counter in (
             ("tool_pause_ns", "observed_tool_pause_s", "_tool_pauses"),
             ("think_ns", "observed_think_s", "_thinks"),
@@ -399,6 +423,29 @@ def reconcile(
         raise ReplayContractError(
             f"missing terminal for {len(missing)} request(s): {missing}"
         )
+    # A parent-spawned request cannot start before its parent is dispatched.
+    # Compare only observations from the same explicitly named clock domain.
+    # A child may overlap its streaming parent and sibling fan-out; different
+    # clock domains or absent timestamps have no comparable ordering evidence.
+    for req in plan["requests"]:
+        parent_id = req["parent_request_id"]
+        if parent_id is None:
+            continue
+        child_stamp = stamped_by_request.get(req["request_id"])
+        parent_stamp = stamped_by_request.get(parent_id)
+        if child_stamp is None or parent_stamp is None:
+            continue
+        child_start, child_clock = child_stamp
+        parent_start, parent_clock = parent_stamp
+        if (
+            child_clock is not None
+            and child_clock == parent_clock
+            and child_start < parent_start
+        ):
+            raise ReplayContractError(
+                f"{req['request_id']}: child starts before parent on shared clock"
+            )
+
     for sid, value in session.items():
         a, b = value.pop("request_start_ns"), value.pop("request_end_ns")
         clocks = value.pop("_request_clocks")
@@ -442,6 +489,16 @@ def reconcile(
         "request_count": len(requests),
         "status_counts": dict(status_counts),
         "unexpected_terminals": unexpected_terminals,
+        "identity_echo_evidence": {
+            "all_requests_fully_echoed": fully_echoed_requests == len(requests),
+            "fully_echoed_requests": fully_echoed_requests,
+            "request_count": len(requests),
+            "field_coverage": {
+                field: identity_echo_coverage[field]
+                for field in IDENTITY_ECHO_FIELDS
+            },
+            "scope": "observation_self_report_not_verified_server_execution",
+        },
         "result": "mismatch" if unexpected_terminals else "matched",
         "sessions": session,
         "source": (
