@@ -72,16 +72,76 @@ def _finite_seconds(nanoseconds: int, label: str, total: float = 0.0) -> float:
     return seconds
 
 
+def strict_json_loads(text: str) -> Any:
+    """Reject ambiguous object keys and JSON-invalid numeric constants.
+
+    Python's default JSON decoder silently keeps the last duplicate member and
+    accepts NaN/Infinity, neither of which belongs in a strict replay bundle.
+    """
+
+    def unique_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ReplayContractError(f"duplicate JSON member {key!r}")
+            result[key] = value
+        return result
+
+    def reject_constant(value: str) -> Any:
+        raise ReplayContractError(f"non-JSON numeric constant {value!r}")
+
+    def representable_float(raw: str) -> float:
+        # A syntactically valid JSON exponent can still overflow to Infinity
+        # or underflow a nonzero observation to a misleading measured zero.
+        number = float(raw)
+        if not math.isfinite(number):
+            raise ReplayContractError(f"non-finite JSON number {raw!r}")
+        if number == 0.0:
+            mantissa = raw.split("e", 1)[0].split("E", 1)[0]
+            if any(digit in "123456789" for digit in mantissa):
+                raise ReplayContractError(f"JSON number underflows to zero {raw!r}")
+        return number
+
+    return json.loads(
+        text,
+        object_pairs_hook=unique_members,
+        parse_constant=reject_constant,
+        parse_float=representable_float,
+    )
+
+
 def canonical_sha256(value: Any) -> str:
     try:
         canonical = json.dumps(
             value, sort_keys=True, separators=(",", ":"), allow_nan=False
         )
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
         raise ReplayContractError(
             "fixture is not finite, JSON-serializable data"
         ) from exc
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _request_id(digest: str, session_id: str, turn_id: str) -> str:
+    """Unambiguously hash two IDs without changing ordinary legacy IDs.
+
+    The NUL-framed fallback is disjoint from the legacy encoding because a
+    validated session_id cannot be empty. Canonical JSON frames embedded NULs.
+    """
+    try:
+        session_bytes = session_id.encode("utf-8")
+        turn_bytes = turn_id.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ReplayContractError("session/turn identity must be valid UTF-8") from exc
+    prefix = digest.encode("ascii")
+    if b"\0" in session_bytes or b"\0" in turn_bytes:
+        encoded_pair = json.dumps(
+            [session_id, turn_id], ensure_ascii=True, separators=(",", ":")
+        ).encode("ascii")
+        preimage = prefix + b"\0\0" + encoded_pair
+    else:
+        preimage = prefix + b"\0" + session_bytes + b"\0" + turn_bytes
+    return "rep-" + hashlib.sha256(preimage).hexdigest()[:24]
 
 
 def validate_fixture(fixture: dict[str, Any]) -> None:
@@ -155,9 +215,7 @@ def compile_plan(fixture: dict[str, Any]) -> dict[str, Any]:
         ids: dict[str, str] = {}
         for turn in session["turns"]:
             turn_id = turn["turn_id"]
-            req_id = "rep-" + hashlib.sha256(
-                f"{digest}\0{session['session_id']}\0{turn_id}".encode()
-            ).hexdigest()[:24]
+            req_id = _request_id(digest, session["session_id"], turn_id)
             parent = turn.get("parent_turn_id")
             requests.append(
                 {
@@ -409,18 +467,18 @@ def main() -> int:
     if args.boundaries and not args.observations:
         parser.error("--boundaries requires --observations")
     try:
-        plan = compile_plan(json.loads(args.fixture.read_text(encoding="utf-8")))
+        plan = compile_plan(strict_json_loads(args.fixture.read_text(encoding="utf-8")))
         output = plan
         if args.observations:
             observations = [
-                json.loads(line)
+                strict_json_loads(line)
                 for line in args.observations.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
             boundaries = None
             if args.boundaries:
                 boundaries = [
-                    json.loads(line)
+                    strict_json_loads(line)
                     for line in args.boundaries.read_text(encoding="utf-8").splitlines()
                     if line.strip()
                 ]
@@ -429,7 +487,7 @@ def main() -> int:
         return 0
     # JSON decoding may fail with ValueError for oversized unquoted integers
     # before the timestamp validator can turn them into ReplayContractError.
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         print(f"replay contract: {exc}", file=sys.stderr)
         return 2
 
