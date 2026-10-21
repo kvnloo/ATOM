@@ -254,7 +254,19 @@ def reconcile(
             "_timestamps": 0, "_tool_pauses": 0, "_thinks": 0,
             "_request_clocks": set(), "_stamped_requests": [],
         })
-    for row in events:
+    # Observations arrive asynchronously. Reconcile in fixture order so report
+    # ordering and floating-point phase totals cannot depend on arrival order.
+    order = {request_id: index for index, request_id in enumerate(requests)}
+
+    def planned_order(row: Any) -> int:
+        if not isinstance(row, dict):
+            return len(order)
+        request_id = row.get("request_id")
+        if not isinstance(request_id, str):
+            return len(order)
+        return order.get(request_id, len(order))
+
+    for row in sorted(events, key=planned_order):
         if not isinstance(row, dict):
             raise ReplayContractError("every observation must be an object")
         req_id = row.get("request_id")
