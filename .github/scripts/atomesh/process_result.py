@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from datetime import datetime
@@ -57,21 +58,25 @@ EVAL_TOPOLOGY_RE = re.compile(
 
 
 def number(*values: Any) -> float | None:
+    """Return the first finite measurement, preserving an explicit zero."""
     for value in values:
-        if value is None or value == "":
+        if isinstance(value, bool) or value is None or value == "":
             continue
         try:
-            return float(value)
-        except (TypeError, ValueError):
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
             continue
+        if math.isfinite(parsed):
+            return parsed
     return None
 
 
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -101,12 +106,13 @@ def slurm_job_env(path: Path) -> dict[str, str]:
 def metric_entry(
     name: str, unit: str, value: float | None, extra: str | None
 ) -> dict[str, Any] | None:
-    if value is None:
+    measured = number(value)
+    if measured is None:
         return None
     return {
         "name": name,
         "unit": unit,
-        "value": round(float(value), 4),
+        "value": round(measured, 4),
         **({"extra": extra} if extra else {}),
     }
 
@@ -151,7 +157,7 @@ def pd_label(prefill: Any, decode: Any) -> str:
 
 
 def divide_by_total_gpu(value: float | None, total_gpu: int | None) -> float | None:
-    if value and total_gpu:
+    if value is not None and total_gpu:
         return value / total_gpu
     return None
 
@@ -785,7 +791,9 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
         conc = eval_concurrency(path)
         if conc is None:
             continue
-        results = payload.get("results", {})
+        results = payload.get("results")
+        if not isinstance(results, dict):
+            continue
         task = ""
         metric = ""
         score_raw = None
@@ -797,25 +805,25 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
             task = "swebench_lite"
             metric = "resolved"
             result = results[task]
+            if not isinstance(result, dict):
+                continue
             score_raw = result.get("exact_match,resolved")
-            details = payload.get("swebench", {})
+            details = payload.get("swebench")
+            if not isinstance(details, dict):
+                details = {}
             resolved = details.get("resolved")
             total = details.get("total")
         elif "gsm8k" in results:
             task = "gsm8k"
             metric = "flexible-extract"
             result = results[task]
-            score_raw = next(
-                (
-                    value
-                    for value in (
-                        result.get("exact_match,flexible-extract"),
-                        result.get("exact_match,strict-match"),
-                        result.get("acc"),
-                    )
-                    if value not in (None, "")
-                ),
-                None,
+            if not isinstance(result, dict):
+                continue
+            # Treat non-numeric/non-finite values as missing before fallback.
+            score_raw = number(
+                result.get("exact_match,flexible-extract"),
+                result.get("exact_match,strict-match"),
+                result.get("acc"),
             )
             strict = number(result.get("exact_match,strict-match"))
         else:
@@ -824,8 +832,15 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
         score = number(score_raw)
         if score is not None:
             env = slurm_job_env(path)
-            task_config = payload.get("configs", {}).get(task, {})
-            global_config = payload.get("config", {})
+            configs = payload.get("configs")
+            if not isinstance(configs, dict):
+                configs = {}
+            task_config = configs.get(task)
+            if not isinstance(task_config, dict):
+                task_config = {}
+            global_config = payload.get("config")
+            if not isinstance(global_config, dict):
+                global_config = {}
             fewshot = task_config.get("num_fewshot")
             if fewshot is None:
                 fewshot = global_config.get("num_fewshot")
