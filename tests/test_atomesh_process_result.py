@@ -258,6 +258,40 @@ class NonFiniteBenchmarkMetricsTest(unittest.TestCase):
                         values, [0.0] if expected is None else [0.0, expected]
                     )
 
+
+    def test_gsm8k_score_uses_finite_fallback_and_preserves_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            eval_dir = root / "20261023_gsm8k_agg_c32"
+            eval_dir.mkdir()
+            path = eval_dir / "results.json"
+            cases = (
+                ("NaN", 0.25, 0.8, 0.25),
+                (True, "Infinity", 0, 0.0),
+                (0, 0.75, 0.9, 0.0),
+                ("invalid", 0.75, 0.9, 0.75),
+            )
+            for flexible, strict, accuracy, expected in cases:
+                with self.subTest(flexible=flexible, strict=strict, accuracy=accuracy):
+                    path.write_text(
+                        json.dumps(
+                            {
+                                "results": {
+                                    "gsm8k": {
+                                        "exact_match,flexible-extract": flexible,
+                                        "exact_match,strict-match": strict,
+                                        "acc": accuracy,
+                                    }
+                                }
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    scores = process_result.find_eval_scores(root)
+                    self.assertEqual(
+                        [score["value"] for score in scores.values()], [expected]
+                    )
+
     def test_nonobject_benchmark_artifact_does_not_abort_valid_cell(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
