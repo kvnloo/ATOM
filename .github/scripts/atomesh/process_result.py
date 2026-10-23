@@ -819,17 +819,11 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
             result = results[task]
             if not isinstance(result, dict):
                 continue
-            score_raw = next(
-                (
-                    value
-                    for value in (
-                        result.get("exact_match,flexible-extract"),
-                        result.get("exact_match,strict-match"),
-                        result.get("acc"),
-                    )
-                    if value not in (None, "")
-                ),
-                None,
+            # Treat non-numeric/non-finite values as missing before fallback.
+            score_raw = number(
+                result.get("exact_match,flexible-extract"),
+                result.get("exact_match,strict-match"),
+                result.get("acc"),
             )
             strict = number(result.get("exact_match,strict-match"))
         else:
