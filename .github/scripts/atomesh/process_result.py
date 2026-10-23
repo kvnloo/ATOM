@@ -73,9 +73,10 @@ def number(*values: Any) -> float | None:
 
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def read_env_file(path: Path) -> dict[str, str]:

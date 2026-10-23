@@ -190,6 +190,39 @@ class NonFiniteBenchmarkMetricsTest(unittest.TestCase):
                 process_result.read_json(path), {"total_token_throughput": 0}
             )
 
+    def test_nonobject_json_artifacts_do_not_abort_eval_scan(self):
+        # Valid JSON scalars and arrays are not benchmark result objects.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            eval_dir = root / "20261022_gsm8k_agg_c64"
+            eval_dir.mkdir()
+            path = eval_dir / "results.json"
+            for raw in ('[{"results": {}}]', '"unexpected"', "true", "17"):
+                with self.subTest(raw=raw):
+                    path.write_text(raw, encoding="utf-8")
+                    self.assertIsNone(process_result.read_json(path))
+                    self.assertEqual(process_result.find_eval_scores(root), {})
+            path.write_text('{"results": {}}', encoding="utf-8")
+            self.assertEqual(process_result.read_json(path), {"results": {}})
+            self.assertEqual(process_result.find_eval_scores(root), {})
+
+    def test_nonobject_benchmark_artifact_does_not_abort_valid_cell(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            valid = write_cell(root, "agg", False)
+            invalid = valid.parent / (
+                "pd-atom-Kimi-K3-MXFP4-1p1d-isl262144-osl1024-conc64-0.8.json"
+            )
+            for raw in ('[{"unexpected": 1}]', '"unexpected"', "true", "17"):
+                with self.subTest(raw=raw):
+                    invalid.write_text(raw, encoding="utf-8")
+                    entries, rows = process_result.collect_dashboard_entries(
+                        [valid, invalid], None, {}, None
+                    )
+                    self.assertEqual(len(entries), 1)
+                    self.assertEqual(len(rows), 1)
+                    self.assertEqual(rows[0]["total_token_throughput"], 102000.0)
+
     def test_all_nonfinite_throughput_has_no_dashboard_point(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
