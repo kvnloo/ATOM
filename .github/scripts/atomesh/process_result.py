@@ -60,7 +60,7 @@ EVAL_TOPOLOGY_RE = re.compile(
 def number(*values: Any) -> float | None:
     """Return the first finite measurement, preserving an explicit zero."""
     for value in values:
-        if value is None or value == "":
+        if isinstance(value, bool) or value is None or value == "":
             continue
         try:
             parsed = float(value)

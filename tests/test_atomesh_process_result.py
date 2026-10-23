@@ -165,6 +165,19 @@ class NonFiniteBenchmarkMetricsTest(unittest.TestCase):
             process_result.metric_entry("TTFT", "ms", 0, None)["value"], 0.0
         )
 
+    def test_boolean_artifact_values_are_not_numeric_measurements(self):
+        # bool is a valid JSON scalar, but not a measured throughput/count.
+        for invalid in (True, False):
+            with self.subTest(invalid=invalid):
+                self.assertIsNone(process_result.number(invalid))
+                self.assertEqual(process_result.number(invalid, "17.25"), 17.25)
+                self.assertIsNone(process_result.round_or_none(invalid))
+                self.assertIsNone(process_result.int_value(invalid))
+                self.assertIsNone(
+                    process_result.metric_entry("TTFT", "ms", invalid, None)
+                )
+        self.assertEqual(process_result.number(0, 17.25), 0.0)
+
     def test_unrepresentable_json_integer_is_missing_with_fallback(self):
         # Unquoted JSON integers can exceed the finite float range.
         enormous = json.loads(json.dumps({"value": 10**309}))["value"]
