@@ -206,6 +206,45 @@ class NonFiniteBenchmarkMetricsTest(unittest.TestCase):
             self.assertEqual(process_result.read_json(path), {"results": {}})
             self.assertEqual(process_result.find_eval_scores(root), {})
 
+
+    def test_nested_nonobject_eval_fields_do_not_hide_valid_score(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            valid_dir = root / "20261023_gsm8k_agg_c32"
+            invalid_dir = root / "20261023_gsm8k_agg_c64"
+            valid_dir.mkdir()
+            invalid_dir.mkdir()
+            # A malformed independent evaluation cannot discard a valid zero.
+            (valid_dir / "results.json").write_text(
+                json.dumps({"results": {"gsm8k": {"acc": 0}}}),
+                encoding="utf-8",
+            )
+            invalid = invalid_dir / "results.json"
+            gsm = {"results": {"gsm8k": {"acc": 0.5}}}
+            cases = (
+                ({"results": True}, None),
+                ({"results": {"gsm8k": True}}, None),
+                ({"results": {"swebench_lite": []}}, None),
+                (
+                    {
+                        "results": {"swebench_lite": {"exact_match,resolved": 0.5}},
+                        "swebench": True,
+                    },
+                    0.5,
+                ),
+                ({**gsm, "configs": True}, 0.5),
+                ({**gsm, "configs": {"gsm8k": True}}, 0.5),
+                ({**gsm, "config": True}, 0.5),
+            )
+            for payload, expected in cases:
+                with self.subTest(payload=payload):
+                    invalid.write_text(json.dumps(payload), encoding="utf-8")
+                    scores = process_result.find_eval_scores(root)
+                    values = sorted(score["value"] for score in scores.values())
+                    self.assertEqual(
+                        values, [0.0] if expected is None else [0.0, expected]
+                    )
+
     def test_nonobject_benchmark_artifact_does_not_abort_valid_cell(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

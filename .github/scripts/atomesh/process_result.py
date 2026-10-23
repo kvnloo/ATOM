@@ -791,7 +791,9 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
         conc = eval_concurrency(path)
         if conc is None:
             continue
-        results = payload.get("results", {})
+        results = payload.get("results")
+        if not isinstance(results, dict):
+            continue
         task = ""
         metric = ""
         score_raw = None
@@ -803,14 +805,20 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
             task = "swebench_lite"
             metric = "resolved"
             result = results[task]
+            if not isinstance(result, dict):
+                continue
             score_raw = result.get("exact_match,resolved")
-            details = payload.get("swebench", {})
+            details = payload.get("swebench")
+            if not isinstance(details, dict):
+                details = {}
             resolved = details.get("resolved")
             total = details.get("total")
         elif "gsm8k" in results:
             task = "gsm8k"
             metric = "flexible-extract"
             result = results[task]
+            if not isinstance(result, dict):
+                continue
             score_raw = next(
                 (
                     value
@@ -830,8 +838,15 @@ def find_eval_scores(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]:
         score = number(score_raw)
         if score is not None:
             env = slurm_job_env(path)
-            task_config = payload.get("configs", {}).get(task, {})
-            global_config = payload.get("config", {})
+            configs = payload.get("configs")
+            if not isinstance(configs, dict):
+                configs = {}
+            task_config = configs.get(task)
+            if not isinstance(task_config, dict):
+                task_config = {}
+            global_config = payload.get("config")
+            if not isinstance(global_config, dict):
+                global_config = {}
             fewshot = task_config.get("num_fewshot")
             if fewshot is None:
                 fewshot = global_config.get("num_fewshot")
